@@ -2,8 +2,8 @@
 -- Requires pgvector extension for vector similarity search
 
 -- Enable required extensions
-CREATE EXTENSION IF NOT EXISTS pgcrypto; -- for future use (uuid/gen_random_uuid)
-CREATE EXTENSION IF NOT EXISTS vector;   -- pgvector for embeddings
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+CREATE EXTENSION IF NOT EXISTS vector;  
 
 -- Users table
 CREATE TABLE IF NOT EXISTS users (
@@ -26,7 +26,6 @@ CREATE TABLE IF NOT EXISTS movies (
 );
 
 -- Interactions table: implicit/explicit feedback
--- MovieLens 25M has one rating per (user, movie), so we keep it unique
 CREATE TABLE IF NOT EXISTS interactions (
     user_id          BIGINT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
     movie_id         BIGINT NOT NULL REFERENCES movies(movie_id) ON DELETE CASCADE,
@@ -37,7 +36,6 @@ CREATE TABLE IF NOT EXISTS interactions (
     PRIMARY KEY (user_id, movie_id)
 );
 
--- Embeddings (LightFM output) using pgvector
 -- Adjust dimensions as needed to match the trained model (default 64)
 CREATE TABLE IF NOT EXISTS user_embeddings (
     user_id      BIGINT PRIMARY KEY REFERENCES users(user_id) ON DELETE CASCADE,
@@ -57,11 +55,9 @@ CREATE INDEX IF NOT EXISTS interactions_movie_idx ON interactions(movie_id);
 CREATE INDEX IF NOT EXISTS movies_genres_gin ON movies USING GIN (genres);
 
 -- Vector indexes (requires pgvector ≥ 0.4.0)
--- Note: IVF_FLAT indexes benefit from ANALYZE and appropriate `lists` value.
 CREATE INDEX IF NOT EXISTS item_embeddings_vec_l2 ON item_embeddings USING ivfflat (embedding vector_l2_ops) WITH (lists = 100);
 CREATE INDEX IF NOT EXISTS user_embeddings_vec_l2 ON user_embeddings USING ivfflat (embedding vector_l2_ops) WITH (lists = 100);
 
--- Optional: simple popularity materialized view example (can be refreshed periodically)
 -- CREATE MATERIALIZED VIEW IF NOT EXISTS mv_movie_popularity AS
 -- SELECT movie_id,
 --        COUNT(*) AS interactions_count,

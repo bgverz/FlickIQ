@@ -70,12 +70,10 @@ def evaluate_embeddings(conn, k: int, limit_users: Optional[int] = None) -> floa
     if not user_vecs or not item_vecs:
         raise SystemExit("Embeddings not found in DB. Train and save them first.")
 
-    # Build mappings
     item_ids = sorted(item_vecs.keys())
     item_matrix = np.vstack([item_vecs[i] for i in item_ids])
     item_id_to_row = {iid: idx for idx, iid in enumerate(item_ids)}
 
-    # Build ground truth from interactions
     interactions = fetch_interactions(conn, limit_users=limit_users)
     if not interactions:
         return 0.0
@@ -83,14 +81,12 @@ def evaluate_embeddings(conn, k: int, limit_users: Optional[int] = None) -> floa
     for uid, iid, _w in interactions:
         by_user.setdefault(uid, []).append(iid)
 
-    # Simple split for eval: last item as test
     recalls: List[float] = []
     for uid, items in by_user.items():
         if uid not in user_vecs or len(items) < 2:
             continue
         test_item = items[-1]
         train_items = set(items[:-1])
-        # Recommend top-k excluding known train items
         topk_rows = cosine_similarity_topk(user_vecs[uid], item_matrix, k + len(train_items))
         topk_iids = []
         for row in topk_rows:

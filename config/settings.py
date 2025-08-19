@@ -1,35 +1,19 @@
-"""
-Centralized configuration helpers for the Movie Recommendation system.
-
-Reads environment variables and exposes small utility helpers used across scripts.
-
-Environment variables:
-- DATABASE_URL: PostgreSQL connection string
-- TMDB_API_KEY: API key for The Movie Database (TMDB)
-"""
-
+from __future__ import annotations
 import os
-from typing import Optional
+from pathlib import Path
+from dotenv import load_dotenv
 
+ROOT_DIR = Path(__file__).resolve().parents[1]
+ENV_PATH = ROOT_DIR / ".env"
+load_dotenv(dotenv_path=ENV_PATH)
 
-def get_database_url() -> str:
-    db_url = os.environ.get("DATABASE_URL")
-    if not db_url:
-        raise RuntimeError("DATABASE_URL is not set in environment")
-    return db_url
-
-
-def get_tmdb_api_key(required: bool = True) -> Optional[str]:
-    api_key = os.environ.get("TMDB_API_KEY")
-    if required and not api_key:
-        raise RuntimeError("TMDB_API_KEY is not set in environment")
-    return api_key
-
-
-def get_embedding_dim(default: int = 64) -> int:
-    try:
-        return int(os.environ.get("EMBEDDING_DIM", str(default)))
-    except Exception:
-        return default
-
-
+# otherwise
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    user = os.getenv("DB_USER", "postgres")
+    pwd = os.getenv("DB_PASSWORD", "")
+    host = os.getenv("DB_HOST", "")
+    port = os.getenv("DB_PORT", "5432")
+    name = os.getenv("DB_NAME", "postgres")
+    ssl = os.getenv("DB_SSLMODE", "require")
+    DATABASE_URL = f"postgresql+psycopg://{user}:{pwd}@{host}:{port}/{name}?sslmode={ssl}"

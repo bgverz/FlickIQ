@@ -107,7 +107,7 @@ def build_dataset(interactions: Sequence[Tuple[int, int, float]],
     dataset = Dataset()
     dataset.fit(users=user_ids, items=item_ids,
                 item_features=set(f"genre:{g}" for genres in item_to_genres.values() for g in genres))
-    user_id_map, item_id_map = dataset._user_id_mapping, dataset._item_id_mapping  # type: ignore[attr-defined]
+    user_id_map, item_id_map = dataset._user_id_mapping, dataset._item_id_mapping
     return dataset, user_id_map, item_id_map
 
 
@@ -117,7 +117,6 @@ def build_matrices(dataset: Dataset,
     triples = [(u, i, w) for (u, i, w) in interactions]
     (interactions_mtx, _weights) = dataset.build_interactions(triples)
 
-    # Build item features
     item_features_list = []
     for item_id, genres in item_to_genres.items():
         if not genres:
@@ -146,7 +145,7 @@ def train_test_split_by_user(interactions: sparse.coo_matrix, test_fraction: flo
             mask = rng.random(len(items)) < test_fraction
             test_items = items[mask]
             train_items = items[~mask]
-            if len(test_items) == 0:  # ensure at least one test when possible
+            if len(test_items) == 0:  
                 test_items = items[-1:]
                 train_items = items[:-1]
         train_rows.extend([u] * len(train_items))
@@ -161,7 +160,6 @@ def train_test_split_by_user(interactions: sparse.coo_matrix, test_fraction: flo
 
 
 def compute_popularity_baseline(train: sparse.coo_matrix, test: sparse.coo_matrix, k: int = 10) -> float:
-    # Popularity by global item frequency in train
     item_popularity = np.asarray(train.sum(axis=0)).ravel()
     topk_items = np.argsort(-item_popularity)[:k]
     test = test.tocsr()
@@ -189,7 +187,6 @@ def train_lightfm(train: sparse.coo_matrix,
 
 
 def matrix_to_vector_literal(vec: np.ndarray) -> str:
-    # pgvector expects e.g. '[0.1, -0.2, ...]'
     return "[" + ",".join(f"{float(x):.6f}" for x in vec.tolist()) + "]"
 
 
@@ -199,7 +196,6 @@ def save_embeddings(conn,
                     user_id_map: Dict[int, int],
                     item_id_map: Dict[int, int],
                     item_features: Optional[sparse.csr_matrix]) -> None:
-    # Build feature matrices to get representations
     if item_features is None:
         item_features = dataset.build_item_features([])
     user_features = dataset.build_user_features([])

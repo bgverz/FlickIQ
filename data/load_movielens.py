@@ -88,7 +88,7 @@ def upsert_movies(conn, movies_csv_path: str) -> int:
         reader = csv.DictReader(f)
         for rec in reader:
             try:
-                movie_id = int(rec["movieId"])  # type: ignore[index]
+                movie_id = int(rec["movieId"])
             except Exception:
                 continue
             title = rec.get("title", "").strip()
@@ -131,9 +131,9 @@ def iter_ratings_batches(ratings_csv_path: str, batch_size: int) -> Iterable[Lis
         reader = csv.DictReader(f)
         for rec in reader:
             try:
-                user_id = int(rec["userId"])  # type: ignore[index]
-                movie_id = int(rec["movieId"])  # type: ignore[index]
-                rating = float(rec["rating"])  # type: ignore[index]
+                user_id = int(rec["userId"])
+                movie_id = int(rec["movieId"])
+                rating = float(rec["rating"])
                 ts_raw = rec.get("timestamp")
                 interacted_at = datetime.fromtimestamp(int(ts_raw), tz=timezone.utc) if ts_raw else None
             except Exception:

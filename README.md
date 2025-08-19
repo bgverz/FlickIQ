@@ -62,19 +62,28 @@ uvicorn api.main:app --reload --port 8000
 ## Project Structure
 ```
 .
+.
 ├── api/
-│   └── main.py
+│   └── main.py              
+├── app/
+│   └── streamlit_app.py     
 ├── config/
-│   └── settings.py
-├── data/
-│   ├── enrich_tmdb.py
-│   └── load_movielens.py
+│   └── settings.py         
+│   ├── enrich_tmdb.py       
+│   ├── load_movielens.py    
+│   ├── load_schema.py       # Initialize schema
+│   ├── seed_minimal.py      # Seed small starter dataset
+│   ├── smoke_query.py       # Sanity checks
+│   ├── peek_table.py        # Preview DB tables
+│   └── table_counts.py      # Row counts by table
 ├── db/
-│   └── schema.sql
+│   └── schema.sql           
 ├── model/
-│   ├── evaluate_model.py
-│   └── train_model.py
+│   ├── train_model.py       
+│   └── evaluate_model.py    
+├── test_connection.py       # Quick DB connection test
 ├── requirements.txt
+├── .gitignore
 └── README.md
 ```
 

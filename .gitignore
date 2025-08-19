@@ -1,8 +1,40 @@
+# Python bytecode / cache
 __pycache__/
-*.pyc
+*.py[cod]
 *.pyo
+*.pyd
 
+# Virtual environments
 .venv/
+.venv311/
+venv/
+ENV/
 
+# Environment files
 .env
-and 
+*.env
+
+# Data / artifacts
+data/raw/**
+*.csv
+*.tsv
+*.json
+*.zip
+
+# Logs
+*.log
+
+# Build / packaging
+build/
+dist/
+*.egg-info/
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+
+# Tests / coverage
+.coverage
+.pytest_cache/
+htmlcov/

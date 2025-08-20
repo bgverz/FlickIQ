@@ -38,3 +38,4 @@ dist/
 .coverage
 .pytest_cache/
 htmlcov/
+.env

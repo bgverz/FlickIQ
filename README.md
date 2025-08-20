@@ -26,7 +26,7 @@ SUPABASE_ANON_KEY=<KEY>
 
 
 # Preferred single connection string (psycopg3)
-DATABASE_URL=postgresql+psycopg://postgres:<PASSWORD>@db.pzywmzybolnmtqenwydj.supabase.co:5432/postgres?sslmode=require
+DATABASE_URL=postgresql+psycopg://postgres:<PASSWORD>@db.pzywmzybolnmtqenwydj.supabase.co:5432/postgres?sslmode=requirery
 
 
 # (Optional fallback pieces — used only if DATABASE_URL is missing)

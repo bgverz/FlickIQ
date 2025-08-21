@@ -249,15 +249,40 @@ def get_interactions(user_id: int, limit: int = Query(50, ge=1, le=500), offset:
 def search_movies(q: str = Query(..., min_length=1), limit: int = Query(20, ge=1, le=100)):
     try:
         with get_conn() as conn, conn.cursor() as cur:
+            # Clean the search query - remove common articles and extra spaces
+            clean_q = q.strip().lower()
+            
+            # Remove leading articles for better matching
+            for article in ['the ', 'a ', 'an ']:
+                if clean_q.startswith(article):
+                    clean_q = clean_q[len(article):]
+                    break
+            
+            # Search with multiple patterns to catch different title formats
             cur.execute(
                 """
                 SELECT movie_id, title, year, overview, poster_path, genres
                 FROM movies
                 WHERE lower(title) LIKE lower(%s)
-                ORDER BY year NULLS LAST, title
+                   OR lower(title) LIKE lower(%s)
+                   OR lower(title) LIKE lower(%s)
+                ORDER BY 
+                    CASE 
+                        WHEN lower(title) LIKE lower(%s) THEN 1
+                        WHEN lower(title) LIKE lower(%s) THEN 2
+                        ELSE 3
+                    END,
+                    year NULLS LAST, title
                 LIMIT %s
                 """,
-                (f"%{q}%", limit),
+                (
+                    f"%{q}%",                    
+                    f"%{clean_q}%",             
+                    f"%, {clean_q}%",           
+                    f"{q}%",                    
+                    f"{clean_q}%",              
+                    limit
+                ),
             )
             return [_movie_from_row(r) for r in cur.fetchall()]
     except Exception:
@@ -366,4 +391,56 @@ def trending(days: int = Query(7, ge=1, le=30), limit: int = Query(20, ge=1, le=
             return [_movie_from_row(r) for r in cur.fetchall()]
     except Exception:
         LOGGER.exception("Failed to fetch trending movies")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@app.get("/movies", response_model=List[Movie], tags=["Movies"])
+def get_all_movies(
+    limit: int = Query(100, ge=1, le=1000, description="Number of movies to return"),
+    offset: int = Query(0, ge=0, description="Number of movies to skip"),
+    genre: Optional[str] = Query(None, description="Filter by genre"),
+    year_min: Optional[int] = Query(None, ge=1900, description="Minimum year"),
+    year_max: Optional[int] = Query(None, le=2030, description="Maximum year")
+):
+    """
+    Get all movies with their overviews and posters.
+    Supports pagination and optional filtering by genre and year range.
+    """
+    try:
+        with get_conn() as conn, conn.cursor() as cur:
+            # Build the WHERE clause dynamically
+            where_conditions = []
+            params = []
+            
+            if genre:
+                where_conditions.append("genres && ARRAY[%s]")
+                params.append(genre)
+            
+            if year_min:
+                where_conditions.append("year >= %s")
+                params.append(year_min)
+                
+            if year_max:
+                where_conditions.append("year <= %s")
+                params.append(year_max)
+            
+            where_clause = ""
+            if where_conditions:
+                where_clause = "WHERE " + " AND ".join(where_conditions)
+            
+            # Add limit and offset to params
+            params.extend([limit, offset])
+            
+            query = f"""
+                SELECT movie_id, title, year, overview, poster_path, genres
+                FROM movies
+                {where_clause}
+                ORDER BY year DESC NULLS LAST, title
+                LIMIT %s OFFSET %s
+            """
+            
+            cur.execute(query, params)
+            return [_movie_from_row(r) for r in cur.fetchall()]
+            
+    except Exception:
+        LOGGER.exception("Failed to fetch all movies")
         raise HTTPException(status_code=500, detail="Internal server error")

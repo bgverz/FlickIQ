@@ -7,6 +7,7 @@ Endpoints:
 - POST /users                 -> create/ensure a user_id exists
 - POST /interactions          -> upsert a user->movie interaction (rating/weight)
 - GET  /interactions/{user_id} -> list interactions for a user (paged)
+- GET  /users/{user_id}/liked -> get liked movies with full movie data (like search results)
 - GET  /movies/search         -> search movies by title (returns poster URLs)
 - GET  /similar/{movie_id}    -> item-to-item "more like this" using pgvector
 - GET  /recommendations/{user_id} -> personalized recs (user-based)
@@ -243,6 +244,41 @@ def get_interactions(user_id: int, limit: int = Query(50, ge=1, le=500), offset:
         raise
     except Exception:
         LOGGER.exception("Failed to fetch interactions")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@app.get("/users/{user_id}/liked", response_model=List[Movie], tags=["Users"])
+def get_liked_movies(
+    user_id: int, 
+    limit: int = Query(50, ge=1, le=500),
+    min_rating: float = Query(4.0, ge=0.5, le=5.0, description="Minimum rating to consider as 'liked'")
+):
+    """
+    Get user's liked movies with full movie data (posters, overviews, etc.)
+    Returns the same Movie format as search results and similar movies.
+    """
+    try:
+        with get_conn() as conn, conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM users WHERE user_id = %s", (user_id,))
+            if cur.fetchone() is None:
+                raise HTTPException(status_code=404, detail=f"user_id {user_id} not found")
+
+            cur.execute(
+                """
+                SELECT m.movie_id, m.title, m.year, m.overview, m.poster_path, m.genres
+                FROM interactions i
+                JOIN movies m ON m.movie_id = i.movie_id
+                WHERE i.user_id = %s 
+                  AND (i.rating >= %s OR i.interaction_type = 'like')
+                ORDER BY i.interacted_at DESC NULLS LAST, i.rating DESC NULLS LAST
+                LIMIT %s
+                """,
+                (user_id, min_rating, limit),
+            )
+            return [_movie_from_row(r) for r in cur.fetchall()]
+    except HTTPException:
+        raise
+    except Exception:
+        LOGGER.exception("Failed to fetch liked movies")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/movies/search", tags=["Movies"])

@@ -36,3 +36,9 @@ tornado==6.5.2
 typing_extensions==4.15.0
 tzdata==2025.2
 urllib3==2.5.0
+fastapi==0.115.0
+uvicorn[standard]==0.30.0
+psycopg2-binary==2.9.9
+# lightfm==1.16  # Install separately if needed
+pydantic==2.8.0
+matplotlib==3.9.0

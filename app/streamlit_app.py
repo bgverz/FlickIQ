@@ -279,50 +279,32 @@ with profile_tab:
     rcol1, rcol2 = st.columns([1, 1])
     with rcol1:
         if st.button("🔄 Refresh from API"):
-            st.session_state["_force_interactions_reload"] = True
+            st.session_state["_force_liked_reload"] = True
     with rcol2:
         if st.button("🧹 Clear local likes cache"):
             st.session_state["likes_cache"].pop(int(user_id), None)
             st.session_state["likes_cache"][int(user_id)] = {}
 
-    # Fetch interactions (API)
-    interactions = []
-    if st.session_state.get("_force_interactions_reload", True):
-        ok, data = safe_get(f"{api_base}/interactions/{int(user_id)}", params={"limit": 1000}, timeout=30)
+    # Fetch liked movies from new API endpoint
+    liked_movies_api = []
+    if st.session_state.get("_force_liked_reload", True):
+        ok, data = safe_get(f"{api_base}/users/{int(user_id)}/liked", params={"limit": 200}, timeout=30)
         if ok and isinstance(data, list):
-            interactions = data
+            liked_movies_api = data
         elif not ok:
             st.warning(str(data))
-        st.session_state["_force_interactions_reload"] = False
+        st.session_state["_force_liked_reload"] = False
 
-    # Basic stats
-    total = len(interactions)
-    likes_from_api = [x for x in interactions if isinstance(x, dict) and x.get("interaction_type") == "like"]
-    st.metric("Total interactions", total)
-    st.metric("Likes (API)", len(likes_from_api))
+    # Use liked movies count as total for now (to avoid 422 error)
+    total_interactions = len(liked_movies_api)
 
     # Merge API likes with local cache for instant UI
     uid = int(user_id)
     cache_map = st.session_state["likes_cache"].get(uid, {})  # {movie_id: movie_dict}
 
-    # Normalize API likes into movie-like dicts (now including genres)
-    normalized_api = []
-    for x in likes_from_api:
-        if not isinstance(x, dict):
-            continue
-        normalized_api.append({
-            "movie_id": x.get("movie_id"),
-            "title": x.get("title"),
-            "year": x.get("year"),
-            "overview": x.get("overview"),
-            "poster_path": x.get("poster_path"),
-            "genres": x.get("genres"),
-            "created_at": x.get("created_at"),
-        })
-
-    # De-dup by movie_id, prefer cache (most up-to-date)
+    # Create merged liked movies list
     merged = {}
-    for m in normalized_api:
+    for m in liked_movies_api:
         if m.get("movie_id") is not None:
             merged[m["movie_id"]] = m
     for mid, m in cache_map.items():
@@ -330,29 +312,12 @@ with profile_tab:
 
     liked_movies = list(merged.values())
 
-    # ---- NEW #1: Top Genres chart (from liked movies) ----
-    genres = []
-    for m in liked_movies:
-        gs = m.get("genres")
-        if gs:
-            if isinstance(gs, str):
-                genres.extend([g.strip() for g in gs.split(",") if g.strip()])
-            elif isinstance(gs, list):
-                genres.extend([str(g).strip() for g in gs if str(g).strip()])
-    if genres:
-        st.markdown("### 🎭 Favorite Genres")
-        counts = Counter(genres)
-        top = counts.most_common(8)
-        fig = plt.figure()  # don't set colors or styles per your tooling rules
-        labels = [k for k, _ in top]
-        values = [v for _, v in top]
-        plt.bar(labels, values)
-        plt.xticks(rotation=30, ha="right")
-        plt.tight_layout()
-        st.pyplot(fig)
+    # Basic stats
+    st.metric("Total interactions", total_interactions)
+    st.metric("Liked movies", len(liked_movies))
 
-    # CSV export (from merged)
     if liked_movies:
+        # CSV export
         csv_bytes = to_csv_bytes(liked_movies, field_order=[
             "movie_id","title","year","overview","poster_path","genres"
         ])
@@ -363,38 +328,77 @@ with profile_tab:
             mime="text/csv"
         )
 
-        # ---- NEW #2: Recent Likes row (most recent first) ----
-        st.markdown("### 🕘 Recent likes")
-        # build a list of (dt, movie_dict) using API rows for ordering; enrich from cache when needed
-        recent_pairs = []
-        for x in likes_from_api:
-            dt = parse_dt(x.get("created_at"))
-            mv = ensure_movie_dict(x, cache_map)
-            if mv and mv.get("movie_id"):
-                recent_pairs.append((dt or datetime.min, mv))
-        # de-dup by movie_id keeping most recent
-        tmp = {}
-        for dt, mv in recent_pairs:
-            mid = mv.get("movie_id")
-            if mid not in tmp or dt > tmp[mid][0]:
-                tmp[mid] = (dt, mv)
-        recent_movies = [pair[1] for pair in sorted(tmp.values(), key=lambda p: p[0], reverse=True)[:12]]
-        if recent_movies:
-            render_movie_grid(recent_movies, cols=6, show_like=False, show_similar=True, similar_limit=12, section="recent_likes")
-        else:
-            st.caption("No recent likes yet.")
-
-        # ---- NEW #3: Because you liked … (seed recs from most recent like) ----
-        seed_movie = recent_movies[0] if recent_movies else liked_movies[0]
-        if seed_movie and seed_movie.get("movie_id"):
-            st.markdown(f"### 🎯 Because you liked **{seed_movie.get('title','this movie')}**")
-            ok, recs = safe_get(f"{api_base}/similar/{int(seed_movie['movie_id'])}", params={"limit": 12}, timeout=30)
-            if ok and isinstance(recs, list) and recs:
-                render_movie_grid(recs, cols=6, show_like=True, show_similar=True, similar_limit=12, section="seed_recs")
+        # Genre preferences chart in expandable section
+        with st.expander("📊 View Genre Preferences"):
+            genres = []
+            for m in liked_movies:
+                gs = m.get("genres")
+                if gs:
+                    if isinstance(gs, str):
+                        genres.extend([g.strip() for g in gs.split(",") if g.strip()])
+                    elif isinstance(gs, list):
+                        genres.extend([str(g).strip() for g in gs if str(g).strip()])
+            if genres:
+                counts = Counter(genres)
+                top = counts.most_common(8)
+                fig = plt.figure(figsize=(10, 6))
+                labels = [k for k, _ in top]
+                values = [v for _, v in top]
+                plt.bar(labels, values)
+                plt.title("Your Favorite Genres")
+                plt.xlabel("Genre")
+                plt.ylabel("Number of Liked Movies")
+                plt.xticks(rotation=45, ha="right")
+                plt.tight_layout()
+                st.pyplot(fig)
             else:
-                st.caption("No similar recommendations available right now.")
-        else:
-            st.caption("Like something to get seed-based recommendations!")
+                st.info("No genre data available yet.")
+
+        st.markdown("---")
+
+        # My Liked Movies section (main display)
+        st.subheader("🎬 My Liked Movies")
+        render_movie_grid(
+            liked_movies[:24],  # Show up to 24 movies to avoid overwhelming the UI
+            cols=6, 
+            show_like=False, 
+            show_similar=False,  # Remove similar buttons from profile
+            similar_limit=12, 
+            section="liked_movies"
+        )
+
+        if len(liked_movies) > 24:
+            st.info(f"Showing 24 of {len(liked_movies)} liked movies. Download CSV for complete list.")
+
+        # Similar results from clicked movies (same as Home tab)
+        if st.session_state["similar_results"]:
+            st.markdown("---")
+            st.subheader(f"🎯 Similar to: {st.session_state['similar_title']}")
+            render_movie_grid(
+                st.session_state["similar_results"],
+                cols=6,
+                show_like=True,
+                show_similar=False,
+                section="profile_similar",
+            )
+
+        # Because you liked section (randomly selected from user's likes)
+        if liked_movies:
+            import random
+            seed_movie = random.choice(liked_movies)  # Randomly select from liked movies
+            if seed_movie and seed_movie.get("movie_id"):
+                st.markdown("---")
+                st.subheader(f"🎯 Because you liked **{seed_movie.get('title','this movie')}**")
+                ok, recs = safe_get(f"{api_base}/similar/{int(seed_movie['movie_id'])}", params={"limit": 12}, timeout=30)
+                if ok and isinstance(recs, list) and recs:
+                    render_movie_grid(recs, cols=6, show_like=True, show_similar=True, similar_limit=12, section="seed_recs")
+                else:
+                    st.info("No similar recommendations available right now.")
+                    
+                # Add a refresh button to get recommendations based on a different liked movie
+                if st.button("🔄 Try another movie", key="refresh_seed"):
+                    st.rerun()
+
     else:
         st.info("No liked movies yet. Like some on the Home tab!")
 

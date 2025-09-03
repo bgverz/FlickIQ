@@ -246,6 +246,29 @@ def get_interactions(user_id: int, limit: int = Query(50, ge=1, le=500), offset:
         LOGGER.exception("Failed to fetch interactions")
         raise HTTPException(status_code=500, detail="Internal server error")
 
+@app.delete("/interactions/{user_id}/{movie_id}", tags=["Interactions"])
+def delete_interaction(user_id: int, movie_id: int):
+    """
+    Delete a user's interaction with a specific movie (unlike)
+    """
+    try:
+        with get_conn() as conn, conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM users WHERE user_id = %s", (user_id,))
+            if cur.fetchone() is None:
+                raise HTTPException(status_code=404, detail=f"user_id {user_id} not found")
+            
+            cur.execute("DELETE FROM interactions WHERE user_id = %s AND movie_id = %s", (user_id, movie_id))
+            if cur.rowcount == 0:
+                raise HTTPException(status_code=404, detail="Interaction not found")
+            
+            conn.commit()
+        return {"ok": True, "message": "Interaction deleted"}
+    except HTTPException:
+        raise
+    except Exception:
+        LOGGER.exception("Failed to delete interaction")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
 @app.get("/users/{user_id}/liked", response_model=List[Movie], tags=["Users"])
 def get_liked_movies(
     user_id: int, 

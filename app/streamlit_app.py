@@ -28,6 +28,13 @@ def safe_post(url: str, **kwargs):
     except Exception as e:
         return (False, f"Request error: {e}")
 
+def safe_delete(url: str, **kwargs):
+    try:
+        r = requests.delete(url, timeout=kwargs.pop("timeout", 30), **kwargs)
+        return (r.ok, (r.json() if r.ok else r.text))
+    except Exception as e:
+        return (False, f"Request error: {e}")
+
 def to_csv_bytes(rows, field_order=None):
     import io as _io
     import csv as _csv
@@ -115,7 +122,7 @@ if "likes_cache" not in st.session_state:
 _ = st.session_state["likes_cache"].setdefault(int(user_id), {})
 
 # ------------- Grid Renderer -------------
-def render_movie_grid(movies, cols=4, show_like=True, show_similar=True, similar_limit=12, section="default"):
+def render_movie_grid(movies, cols=4, show_like=True, show_similar=True, show_unlike=False, similar_limit=12, section="default"):
     grid_cols = st.columns(cols)
     for i, m in enumerate(movies or []):
         if not isinstance(m, dict):
@@ -133,9 +140,21 @@ def render_movie_grid(movies, cols=4, show_like=True, show_similar=True, similar
             if year:
                 st.caption(f"{year}")
 
-            b1, b2 = st.columns(2)
+            # Dynamic button layout based on what buttons are shown
+            buttons_needed = sum([show_like, show_similar, show_unlike])
+            if buttons_needed == 1:
+                b1 = st.container()
+                b2 = None
+                b3 = None
+            elif buttons_needed == 2:
+                b1, b2 = st.columns(2)
+                b3 = None
+            else:
+                b1, b2, b3 = st.columns(3)
+            
+            button_idx = 0
             if show_like and m.get("movie_id") is not None:
-                with b1:
+                with [b1, b2, b3][button_idx]:
                     if st.button(f"👍 Like #{m['movie_id']}", key=f"{section}_like_{m['movie_id']}"):
                         payload = {"user_id": int(user_id), "movie_id": int(m["movie_id"]), "interaction_type": "like"}
                         ok, resp = safe_post(f"{api_base}/interactions", json=payload, timeout=15)
@@ -154,9 +173,27 @@ def render_movie_grid(movies, cols=4, show_like=True, show_similar=True, similar
                             }
                         else:
                             st.error(str(resp))
+                button_idx += 1
+
+            if show_unlike and m.get("movie_id") is not None:
+                with [b1, b2, b3][button_idx]:
+                    if st.button(f"💔 Unlike", key=f"{section}_unlike_{m['movie_id']}"):
+                        ok, resp = safe_delete(f"{api_base}/interactions/{int(user_id)}/{int(m['movie_id'])}", timeout=15)
+                        if ok:
+                            st.success("Unliked!")
+                            # Remove from cache
+                            uid = int(user_id)
+                            cache = st.session_state["likes_cache"].get(uid, {})
+                            cache.pop(m["movie_id"], None)
+                            # Force reload of liked movies
+                            st.session_state["_force_liked_reload"] = True
+                            st.rerun()
+                        else:
+                            st.error(str(resp))
+                button_idx += 1
 
             if show_similar and m.get("movie_id") is not None:
-                with b2:
+                with [b1, b2, b3][button_idx]:
                     if st.button("🎯 Similar", key=f"{section}_sim_{m['movie_id']}"):
                         ok, resp = safe_get(
                             f"{api_base}/similar/{int(m['movie_id'])}",
@@ -298,9 +335,6 @@ with profile_tab:
 
     # Controls
     rcol1, rcol2 = st.columns([1, 1])
-    with rcol1:
-        if st.button("🔄 Refresh from API"):
-            st.session_state["_force_liked_reload"] = True
     with rcol2:
         if st.button("🧹 Clear local likes cache"):
             st.session_state["likes_cache"].pop(int(user_id), None)
@@ -384,6 +418,7 @@ with profile_tab:
             cols=6, 
             show_like=False, 
             show_similar=False,  # Remove similar buttons from profile
+            show_unlike=True,   # Add unlike buttons
             similar_limit=12, 
             section="liked_movies"
         )

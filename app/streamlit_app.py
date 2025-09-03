@@ -208,16 +208,27 @@ with home_tab:
     # --- User-based recommendations ---
     st.subheader("👤 Recommendations for the active user")
     k = st.slider("How many results?", 1, 30, 10, key="rec_k")
+    
+    # Initialize session state for recommendations
+    if "recommendation_results" not in st.session_state:
+        st.session_state["recommendation_results"] = []
+    
     if st.button("Get Recommendations"):
         ok, data = safe_get(f"{api_base}/recommendations/{int(user_id)}", params={"limit": int(k)}, timeout=30)
         if ok:
             items = (data or {}).get("items", [])
             if items:
-                render_movie_grid(items, cols=5, show_like=True, show_similar=True, similar_limit=12, section="recommendations")
+                st.session_state["recommendation_results"] = items
             else:
+                st.session_state["recommendation_results"] = []
                 st.info("No recommendations yet. Try liking a few movies first.")
         else:
+            st.session_state["recommendation_results"] = []
             st.error(str(data))
+    
+    # Display recommendations if they exist
+    if st.session_state["recommendation_results"]:
+        render_movie_grid(st.session_state["recommendation_results"], cols=5, show_like=True, show_similar=True, similar_limit=12, section="recommendations")
 
     st.markdown("---")
 
@@ -230,6 +241,10 @@ with home_tab:
         genre_filter = st.selectbox("Filter by genre", ["", "Action", "Comedy", "Drama", "Horror", "Sci-Fi", "Thriller"])
     with col3:
         year_filter = st.selectbox("Filter by year", ["", "2020+", "2010-2019", "2000-2009", "1990-1999"])
+
+    # Initialize session state for browse results
+    if "browse_results" not in st.session_state:
+        st.session_state["browse_results"] = []
 
     if st.button("Browse Movies"):
         params = {"limit": browse_limit}
@@ -248,11 +263,17 @@ with home_tab:
         if ok:
             movies = data or []
             if movies:
-                render_movie_grid(movies, cols=4, show_like=True, show_similar=True, similar_limit=12, section="browse")
+                st.session_state["browse_results"] = movies
             else:
+                st.session_state["browse_results"] = []
                 st.info("No movies found with those filters.")
         else:
+            st.session_state["browse_results"] = []
             st.error(str(data))
+
+    # Display browse results if they exist
+    if st.session_state["browse_results"]:
+        render_movie_grid(st.session_state["browse_results"], cols=4, show_like=True, show_similar=True, similar_limit=12, section="browse_movies")
 
 with profile_tab:
     st.subheader("👤 Profile")
@@ -385,7 +406,15 @@ with profile_tab:
         # Because you liked section (randomly selected from user's likes)
         if liked_movies:
             import random
-            seed_movie = random.choice(liked_movies)  # Randomly select from liked movies
+            
+            # Use session state to control random selection
+            if "random_seed_movie" not in st.session_state or "refresh_recommendations" not in st.session_state:
+                st.session_state["refresh_recommendations"] = 0
+                
+            # Get a consistent random movie for this refresh cycle
+            random.seed(st.session_state["refresh_recommendations"])
+            seed_movie = random.choice(liked_movies)
+            
             if seed_movie and seed_movie.get("movie_id"):
                 st.markdown("---")
                 st.subheader(f"🎯 Because you liked **{seed_movie.get('title','this movie')}**")
@@ -397,7 +426,7 @@ with profile_tab:
                     
                 # Add a refresh button to get recommendations based on a different liked movie
                 if st.button("🔄 Try another movie", key="refresh_seed"):
-                    st.rerun()
+                    st.session_state["refresh_recommendations"] += 1
 
     else:
         st.info("No liked movies yet. Like some on the Home tab!")

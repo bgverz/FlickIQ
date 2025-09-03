@@ -13,6 +13,19 @@ DEFAULT_API = os.environ.get("API_BASE", "http://127.0.0.1:8000")
 st.set_page_config(page_title="Movie Recommender", page_icon="🎬", layout="wide")
 st.title("🎬 Movie Recommender")
 
+# --- stable user id across reruns
+user_id = st.number_input("Active user ID", min_value=1, value=1001, step=1, key="user_id_input")
+
+# --- one-time flag so we fetch API likes on first load
+if "_force_liked_reload" not in st.session_state:
+    st.session_state["_force_liked_reload"] = True
+
+# local cache container (non-destructive)
+if "likes_cache" not in st.session_state:
+    st.session_state["likes_cache"] = {}
+_ = st.session_state["likes_cache"].setdefault(int(user_id), {})
+
+
 # ------------- Helpers -------------
 def safe_get(url: str, **kwargs):
     try:
@@ -82,11 +95,25 @@ def ensure_movie_dict(x, cache_map):
         "genres": x.get("genres"),
     }
 
+def on_unlike(m, user_id, api_base):
+    uid = int(user_id)
+    mid = int(m["movie_id"])
+    ok, resp = safe_delete(f"{api_base}/interactions/{uid}/{mid}", timeout=15)
+    if ok:
+        st.success(f"Unliked {m['title']}!")
+        # Optimistically remove from cache if you have one
+        st.session_state.get("likes_cache", {}).get(uid, {}).pop(mid, None)
+        # Force reload liked list and rerun app
+        st.session_state["_force_liked_reload"] = True
+        st.rerun()
+    else:
+        st.error(str(resp))
+
 # ------------- Sidebar -------------
 with st.sidebar:
     st.header("Settings")
     api_base = st.text_input("API base URL", value=DEFAULT_API)
-    user_id = st.number_input("Active user ID", min_value=1, value=1001, step=1)
+    user_id = st.number_input("Active user ID", min_value=1, value=1001, step=1, key="user_id_input")
 
     # simple local profile store (per user_id)
     if "profiles" not in st.session_state:
@@ -343,11 +370,11 @@ with profile_tab:
     # Fetch liked movies from new API endpoint
     liked_movies_api = []
     if st.session_state.get("_force_liked_reload", True):
-        ok, data = safe_get(f"{api_base}/users/{int(user_id)}/liked", params={"limit": 200}, timeout=30)
+        ok, data = safe_get(f"{api_base}/users/{int(user_id)}/liked", params={"limit": 500}, timeout=30)
         if ok and isinstance(data, list):
             liked_movies_api = data
-        elif not ok:
-            st.warning(str(data))
+        else:
+            st.warning(str(data) if not ok else "Unexpected response shape from /users/{id}/liked")
         st.session_state["_force_liked_reload"] = False
 
     # Use liked movies count as total for now (to avoid 422 error)
@@ -441,30 +468,39 @@ with profile_tab:
         # Because you liked section (randomly selected from user's likes)
         if liked_movies:
             import random
-            
-            # Use session state to control random selection
-            if "random_seed_movie" not in st.session_state or "refresh_recommendations" not in st.session_state:
-                st.session_state["refresh_recommendations"] = 0
-                
-            # Get a consistent random movie for this refresh cycle
-            random.seed(st.session_state["refresh_recommendations"])
-            seed_movie = random.choice(liked_movies)
-            
+
+            # Keep a small counter in session state to rotate the random seed
+            refresh_key = "refresh_recommendations"
+            if refresh_key not in st.session_state:
+                st.session_state[refresh_key] = 0
+
+            # Use a deterministic seed for the current refresh cycle, so the UI is stable until user clicks refresh
+            random.seed(st.session_state[refresh_key])
+            seed_movie = random.choice(liked_movies)  # pick from what the Profile is actually showing
+
             if seed_movie and seed_movie.get("movie_id"):
-                st.markdown("---")
-                st.subheader(f"🎯 Because you liked **{seed_movie.get('title','this movie')}**")
-                ok, recs = safe_get(f"{api_base}/similar/{int(seed_movie['movie_id'])}", params={"limit": 12}, timeout=30)
+                st.markdown('---')
+                st.subheader(f"🎯 Because you liked **{seed_movie.get('title', 'this movie')}**")
+                ok, recs = safe_get(
+                    f"{api_base}/similar/{int(seed_movie['movie_id'])}",
+                    params={"limit": 12},
+                    timeout=30
+                )
                 if ok and isinstance(recs, list) and recs:
-                    render_movie_grid(recs, cols=6, show_like=True, show_similar=True, similar_limit=12, section="seed_recs")
+                    render_movie_grid(
+                        recs,
+                        cols=6,
+                        show_like=True,
+                        show_similar=True,
+                        similar_limit=12,
+                        section="seed_recs",
+                    )
                 else:
                     st.info("No similar recommendations available right now.")
-                    
-                # Add a refresh button to get recommendations based on a different liked movie
+
+                # Rotate the seed on demand
                 if st.button("🔄 Try another movie", key="refresh_seed"):
-                    st.session_state["refresh_recommendations"] += 1
-
-    else:
-        st.info("No liked movies yet. Like some on the Home tab!")
-
-    st.markdown("---")
-    st.caption("Tip: display name and bio are stored locally in this app (not in the API).")
+                    st.session_state[refresh_key] += 1
+                    st.rerun()
+        else:
+            st.info("No liked movies yet. Like some on the Home tab!")

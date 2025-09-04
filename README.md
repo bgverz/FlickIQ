@@ -14,7 +14,7 @@ A production-ready hybrid movie recommendation system built with Python, LightFM
 ## 🏗️ Architecture
 
 ```
-├── api/               # FastAPI application
+├── api/              # FastAPI application
 ├── app/              # Streamlit UI
 ├── config/           # Configuration and settings
 ├── data/             # Data loading and processing scripts
@@ -77,44 +77,8 @@ POSTER_PLACEHOLDER=https://placehold.co/342x513?text=No+Poster
 # Set up database schema
 export DATABASE_URL="postgresql://postgres:YOUR_PASSWORD@YOUR_HOST:5432/postgres?sslmode=require"
 python -m data.load_schema
-python -m data.seed_minimal
 ```
-
-### 4. Data Loading
-
-```bash
-# Download MovieLens 25M dataset
-wget https://files.grouplens.org/datasets/movielens/ml-25m.zip
-unzip ml-25m.zip
-
-# Load MovieLens data (this may take 10-30 minutes)
-python -m data.load_movielens \
-    --movies_csv ./ml-25m/movies.csv \
-    --ratings_csv ./ml-25m/ratings.csv \
-    --batch_size 50000
-```
-
-### 5. TMDB Enrichment (Optional but Recommended)
-
-```bash
-# Enrich with TMDB metadata (start small for testing)
-python -m data.enrich_tmdb --limit 1000 --only-missing
-
-# For production, enrich all movies (takes several hours due to rate limits)
-python -m data.enrich_tmdb --only-missing
-```
-
-### 6. Model Training
-
-```bash
-# Train the hybrid recommendation model
-python -m model.train_model --epochs 10 --no_components 64 --num_threads 8
-
-# Evaluate the model (optional)
-python model/evaluate_model.py --from-db --k 10 --limit_users 1000
-```
-
-### 7. Start Services
+### 4. Start Services
 
 ```bash
 # Terminal 1: Start FastAPI server
@@ -170,14 +134,6 @@ python model/evaluate_model.py --train --epochs 5 --no_components 64
 - Use `--limit_users` during development to work with smaller datasets
 - Tune PostgreSQL `work_mem` and `shared_buffers` for large data operations
 
-### Production Checklist
-- [ ] Set up proper SSL certificates
-- [ ] Configure connection pooling for PostgreSQL
-- [ ] Set up monitoring and logging
-- [ ] Implement rate limiting for API endpoints
-- [ ] Set up automated model retraining pipeline
-- [ ] Configure backup strategy for embeddings and user data
-
 ## 🛠️ Development
 
 ### Useful Commands
@@ -216,14 +172,6 @@ The system uses Recall@K as the primary evaluation metric:
 - **Recall@10**: Measures how many relevant items appear in top-10 recommendations
 - **Cold Start Handling**: Uses item popularity fallback for new users
 - **Hybrid Approach**: Combines user-item interactions with genre features
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests if applicable
-5. Submit a pull request
 
 ## 📄 License
 

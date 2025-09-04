@@ -148,6 +148,20 @@ def normalize_text(text: str) -> str:
         return ""
     return re.sub(r"\s+", " ", str(text)).strip()
 
+def clean_movie_title(title, year=None):
+    """
+    Remove year from movie title if it exists, then optionally add it back
+    """
+    if not title:
+        return "Untitled"
+    
+    clean_title = re.sub(r'\s*\(\d{4}\)$', '', title.strip()).strip()
+    
+    if year:
+        return f"{clean_title} ({year})"
+    else:
+        return clean_title
+
 # ----------------- Session init -----------------
 if "_force_liked_reload" not in st.session_state:
     st.session_state["_force_liked_reload"] = True
@@ -189,7 +203,6 @@ with st.sidebar:
 
 st.markdown("---")
 
-# Ensure per-user cache exists
 _ = st.session_state["likes_cache"].setdefault(int(user_id), {})
 
 # ----------------- Grid Renderer -----------------
@@ -201,12 +214,11 @@ def render_movie_grid(
     show_unlike=False,
     similar_limit=12,
     section="default",
-    profile_mode=False,           # NEW: profile layout (3 columns, larger desc, consistent spacing)
+    profile_mode=False,           
 ):
     if not movies:
         return
 
-    # For profile we want 3 columns and bigger “grid gap”
     if profile_mode:
         cols = 3
 
@@ -218,14 +230,14 @@ def render_movie_grid(
         with col_objs[i % cols]:
             raw_title = (m.get("title") or "Untitled").strip()
             year = m.get("year")
-            title = f"{raw_title} ({year})" if year else raw_title
+            title = clean_movie_title(raw_title, year)
             poster = (m.get("poster_path") or "").strip()
             overview_full = normalize_text(m.get("overview"))
             mid = m.get("movie_id")
 
             st.markdown('<div class="movie-card">', unsafe_allow_html=True)
 
-            # Poster (transparent wrapper to remove the “pill”)
+            # Poster
             if poster:
                 st.markdown(
                     f'<div class="poster-wrap"><img class="poster" src="{poster}" alt="{raw_title} poster" /></div>',
@@ -237,28 +249,24 @@ def render_movie_grid(
                     unsafe_allow_html=True
                 )
 
-            # Title (no duplicate year added later)
+            # Title
             st.markdown(f'<div class="title">{title}</div>', unsafe_allow_html=True)
 
-            # Overview (fixed height, then optional Read more…)
+            # Overview
             if overview_full:
                 st.markdown(f'<div class="overview-clamp">{overview_full}</div>', unsafe_allow_html=True)
-                # Show popover only when it actually needs truncation
                 if len(overview_full) > 300:
                     with st.popover("Read more …", use_container_width=True):
                         st.write(overview_full)
                 else:
-                    # Keep rows aligned by inserting a placeholder of the same height
                     st.markdown('<div class="readmore-placeholder"></div>', unsafe_allow_html=True)
             else:
-                # No overview: reserve the space anyway so buttons align
                 st.markdown('<div class="overview-clamp"></div>', unsafe_allow_html=True)
                 st.markdown('<div class="readmore-placeholder"></div>', unsafe_allow_html=True)
 
-            # Push actions to bottom consistently
             st.markdown('<div class="spacer-flex"></div>', unsafe_allow_html=True)
 
-            # Action buttons (horizontal)
+            # interaction buttons
             btn_defs = []
             if show_like and mid is not None:
                 btn_defs.append(("👍 Like", f"{section}_like_{mid}"))
@@ -312,8 +320,8 @@ def render_movie_grid(
                                     st.warning(str(resp))
 
             st.markdown('<div class="card-bottom-gap"></div>', unsafe_allow_html=True)
-            st.markdown('</div>', unsafe_allow_html=True)  # end .movie-card
-            st.write("")  # spacer
+            st.markdown('</div>', unsafe_allow_html=True)
+            st.write("")
 
 # ----------------- Tabs -----------------
 home_tab, profile_tab = st.tabs(["🏠 Home", "👤 Profile"])
@@ -439,7 +447,7 @@ with profile_tab:
             st.session_state["likes_cache"].pop(int(user_id), None)
             st.session_state["likes_cache"][int(user_id)] = {}
 
-    # Fetch liked movies from API (once, or when forced)
+    # Fetch liked movies from API
     liked_movies_api = []
     if st.session_state.get("_force_liked_reload", True):
         ok, data = safe_get(f"{api_base}/users/{int(user_id)}/liked", params={"limit": 500}, timeout=30)
@@ -453,7 +461,7 @@ with profile_tab:
         if ok and isinstance(data, list):
             liked_movies_api = data
 
-    # Merge API likes with local cache for instant UI
+    # Merge API likes with local cache
     uid = int(user_id)
     cache_map = st.session_state["likes_cache"].get(uid, {})
     merged = {}
@@ -506,11 +514,11 @@ with profile_tab:
 
         st.markdown("---")
 
-        # 💖 My Liked Movies — profile layout on (3 columns, bigger desc, aligned buttons)
+        # My Liked Movies
         st.subheader("🎬 My Liked Movies")
         render_movie_grid(
             liked_movies,
-            cols=3,                      # explicitly 3 per row
+            cols=3,                     
             show_like=False,
             show_similar=False,
             show_unlike=True,
@@ -519,7 +527,7 @@ with profile_tab:
             profile_mode=True,
         )
 
-        # Similar results (if previously clicked)
+        # Similar results
         if st.session_state["similar_results"]:
             st.markdown("---")
             st.subheader(f"🎯 Similar to: {st.session_state['similar_title']}")

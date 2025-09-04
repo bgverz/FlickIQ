@@ -1,4 +1,3 @@
--- Switch item/user embedding indexes to cosine ops
 DROP INDEX IF EXISTS item_embeddings_vec_l2;
 DROP INDEX IF EXISTS user_embeddings_vec_l2;
 

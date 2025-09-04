@@ -129,7 +129,7 @@ def extract_fields(j: Dict[str, Any]) -> Dict[str, Any]:
     genres = [g.get("name") for g in (j.get("genres") or []) if g.get("name")]
     return {
         "tmdb_id": j.get("id"),
-        "imdb_id": j.get("imdb_id"),  # "tt0114709" style
+        "imdb_id": j.get("imdb_id"),
         "poster_path": j.get("poster_path"),
         "overview": j.get("overview"),
         "year": year,
@@ -174,7 +174,6 @@ def coerce_imdb_value(raw: Any, target_type: str) -> Optional[Any]:
             return int(num) if num.isdigit() else None
         if isinstance(raw, (int,)):
             return raw
-        # Try to parse any other string
         try:
             return int(str(raw))
         except Exception:
@@ -226,7 +225,6 @@ def main() -> None:
             for (movie_id, title, year, tmdb_id, imdb_id, poster_path, overview, genres) in rows:
                 checked += 1
 
-                # Prefer tmdb_id; otherwise robust search
                 data = tmdb_movie_details(int(tmdb_id)) if tmdb_id else None
                 if data is None:
                     data = tmdb_search_best(title or "", int(year) if year else None)
@@ -238,7 +236,6 @@ def main() -> None:
 
                 fields = extract_fields(data)
 
-                # Build update sets
                 sets: List[str] = []
                 vals: List[Any] = []
 
@@ -258,12 +255,10 @@ def main() -> None:
                     sets.append("genres = %s")
                     vals.append(fields.get("genres"))
 
-                # Always fill tmdb_id if missing and we found it
                 if should_update(tmdb_id, fields.get("tmdb_id"), overwrite=False):
                     sets.append("tmdb_id = %s")
                     vals.append(fields.get("tmdb_id"))
 
-                # imdb_id: adapt to column type
                 imdb_raw = fields.get("imdb_id")
                 imdb_coerced = coerce_imdb_value(imdb_raw, imdb_type)
                 if should_update(imdb_id, imdb_coerced, overwrite=False):

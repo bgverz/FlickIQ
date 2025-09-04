@@ -83,7 +83,6 @@ def fetch_movies_and_genres(conn, limit_items: Optional[int] = None) -> Dict[int
     with conn.cursor() as cur:
         cur.execute(sql, params) if params else cur.execute(sql)
         for movie_id, genres in cur.fetchall():
-            # genres may be None or a list-like; coerce safely
             item_to_genres[int(movie_id)] = list(genres) if genres else []
     return item_to_genres
 
@@ -124,10 +123,8 @@ def build_dataset(
     item_to_genres: Dict[int, List[str]],
 ) -> Tuple[Dataset, Dict[int, int], Dict[int, int]]:
     user_ids = sorted({u for (u, _m, _w) in interactions})
-    # IMPORTANT: items limited to those that appear in interactions
     item_ids = sorted({m for (_u, m, _w) in interactions})
 
-    # Features set built from whatever genres exist (can be superset)
     feature_tokens = {f"genre:{g}" for genres in item_to_genres.values() for g in (genres or [])}
 
     dataset = Dataset()
@@ -154,9 +151,7 @@ def build_matrices(
         ((u, i, w) for (u, i, w) in interactions)
     )
 
-    # Restrict features to items known to the dataset (appear in interactions)
     known_items = set(dataset._item_id_mapping.keys())
-    # Build (item_id, ["genre:..."]) pairs only for known items
     def _iter_item_feats() -> Iterable[Tuple[int, List[str]]]:
         for item_id, genres in item_to_genres.items():
             if item_id not in known_items:
@@ -165,7 +160,6 @@ def build_matrices(
                 continue
             yield (item_id, [f"genre:{g}" for g in genres])
 
-    # If there are no features, return None; LightFM can still train
     it = list(_iter_item_feats())
     item_features_mtx = (
         dataset.build_item_features(((i, feats) for (i, feats) in it))
@@ -262,7 +256,6 @@ def save_embeddings(
     item_id_map: Dict[int, int],
     item_features: Optional[sparse.csr_matrix],
 ) -> None:
-    # Ensure feature matrices exist for representation extraction
     if item_features is None:
         item_features = dataset.build_item_features([])
     user_features = dataset.build_user_features([])

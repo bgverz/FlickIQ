@@ -82,7 +82,7 @@ st.markdown("""
   flex: 1 1 auto;
 }
 
-/* Make rows breathe a bit */
+/* Let rows breathe a bit */
 .card-bottom-gap {
   height: 8px;
 }
@@ -156,7 +156,8 @@ def clean_movie_title(title, year=None):
         return "Untitled"
     
     clean_title = re.sub(r'\s*\(\d{4}\)$', '', title.strip()).strip()
-    
+    clean_title = re.sub(r'^THE\b', 'The', clean_title)
+
     if year:
         return f"{clean_title} ({year})"
     else:
@@ -249,13 +250,13 @@ def render_movie_grid(
                     unsafe_allow_html=True
                 )
 
-            # Title
+            # Titles
             st.markdown(f'<div class="title">{title}</div>', unsafe_allow_html=True)
 
-            # Overview
+            # Overviews
             if overview_full:
                 st.markdown(f'<div class="overview-clamp">{overview_full}</div>', unsafe_allow_html=True)
-                if len(overview_full) > 300:
+                if len(overview_full) > 450:
                     with st.popover("Read more …", use_container_width=True):
                         st.write(overview_full)
                 else:

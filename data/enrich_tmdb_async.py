@@ -175,7 +175,6 @@ def should_update(existing: Any, new_val: Any, overwrite: bool) -> bool:
 async def worker(row: Tuple[Any, ...], tmdb: TMDB, imdb_type: str, overwrite_flags: Dict[str, bool]) -> Optional[Tuple[int, Dict[str, Any]]]:
     movie_id, title, year, tmdb_id, imdb_id, poster_path, overview, genres = row
 
-    # Prefer tmdb_id; else imdb_id; else title search
     details = None
     if tmdb_id:
         details = await tmdb.movie_details(int(tmdb_id))
@@ -237,7 +236,6 @@ def fetch_rows(conn, limit: int, only_missing: bool) -> List[Tuple[Any, ...]]:
 def bulk_update(conn, batch: List[Tuple[int, Dict[str, Any]]]) -> int:
     if not batch:
         return 0
-    # Build VALUES like: (movie_id, poster_path, overview, year, genres, tmdb_id, imdb_id)
     cols = ["poster_path", "overview", "year", "genres", "tmdb_id", "imdb_id"]
     rows = []
     for mid, upd in batch:
@@ -250,10 +248,7 @@ def bulk_update(conn, batch: List[Tuple[int, Dict[str, Any]]]) -> int:
             upd.get("tmdb_id"),
             upd.get("imdb_id"),
         ))
-    # Upsert-like behavior via per-column COALESCE to only set provided fields
-    # We'll use a temp table approach for speed & simplicity
     with conn.cursor() as cur:
-        # create temp table
         cur.execute("""
             CREATE TEMP TABLE tmp_updates (
                 movie_id BIGINT PRIMARY KEY,
@@ -270,7 +265,6 @@ def bulk_update(conn, batch: List[Tuple[int, Dict[str, Any]]]) -> int:
             rows,
             page_size=1000
         )
-        # Apply updates where column is not null
         cur.execute("""
             UPDATE movies m
             SET
@@ -298,7 +292,6 @@ async def main_async(args):
     print(f"Fetched {total} rows to process")
 
     # HTTP client & rate limit
-    # qps=6 by default; TMDB allows ~40/10s (≈4 qps) historically; tune as needed.
     limiter = AsyncLimiter(max_rate=args.qps, time_period=1)
     timeout = aiohttp.ClientTimeout(total=30)
     connector = aiohttp.TCPConnector(limit=args.concurrency)
@@ -336,7 +329,6 @@ async def main_async(args):
                     elapsed = time.time() - start
                     print(f"Processed {processed}/{total} | Applied {n} updates | {elapsed:.1f}s")
 
-        # final flush
         if updated_rows:
             n = bulk_update(conn, updated_rows)
             print(f"Final apply: {n} updates")

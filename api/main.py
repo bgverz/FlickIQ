@@ -32,7 +32,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 
 # --- DB config ---
 try:
-    from config.settings import DATABASE_URL as CFG_DATABASE_URL  # type: ignore
+    from config.settings import DATABASE_URL as CFG_DATABASE_URL
     DATABASE_URL = CFG_DATABASE_URL or os.environ.get("DATABASE_URL")
 except Exception:
     DATABASE_URL = os.environ.get("DATABASE_URL")
@@ -49,11 +49,10 @@ def _normalize_pg_dsn(url: str) -> str:
 
 DSN = _normalize_pg_dsn(DATABASE_URL)
 
-# vector metric selection
 VECTOR_METRIC = os.environ.get("VECTOR_METRIC", "cosine").lower().strip()
 DIST_OP = "<=>" if VECTOR_METRIC == "cosine" else "<->"
 
-# poster helpers
+# posters URLs
 TMDB_IMAGE_BASE = os.environ.get("TMDB_IMAGE_BASE", "https://image.tmdb.org/t/p/w342")
 POSTER_PLACEHOLDER = os.environ.get("POSTER_PLACEHOLDER", "https://placehold.co/342x513?text=No+Poster")
 
@@ -308,10 +307,9 @@ def get_liked_movies(
 def search_movies(q: str = Query(..., min_length=1), limit: int = Query(20, ge=1, le=100)):
     try:
         with get_conn() as conn, conn.cursor() as cur:
-            # Clean the search query - remove common articles and extra spaces
+            # Clean the search query
             clean_q = q.strip().lower()
             
-            # Remove leading articles for better matching
             for article in ['the ', 'a ', 'an ']:
                 if clean_q.startswith(article):
                     clean_q = clean_q[len(article):]
@@ -355,7 +353,6 @@ def similar(movie_id: int, limit: int = Query(10, ge=1, le=100)):
     """
     try:
         with get_conn() as conn, conn.cursor() as cur:
-            # ensure we have an embedding for this movie
             cur.execute("SELECT embedding::text FROM item_embeddings WHERE movie_id = %s", (movie_id,))
             row = cur.fetchone()
             if not row:
@@ -466,7 +463,6 @@ def get_all_movies(
     """
     try:
         with get_conn() as conn, conn.cursor() as cur:
-            # Build the WHERE clause dynamically
             where_conditions = []
             params = []
             
@@ -486,7 +482,6 @@ def get_all_movies(
             if where_conditions:
                 where_clause = "WHERE " + " AND ".join(where_conditions)
             
-            # Add limit and offset to params
             params.extend([limit, offset])
             
             query = f"""

@@ -1,32 +1,100 @@
 import os
 import io
+import re
 import csv
 from collections import Counter
 from datetime import datetime
 
 import requests
 import streamlit as st
-import matplotlib.pyplot as plt  # for the genres chart
+import matplotlib.pyplot as plt
 
+# ----------------- Config -----------------
 DEFAULT_API = os.environ.get("API_BASE", "http://127.0.0.1:8000")
-
 st.set_page_config(page_title="Movie Recommender", page_icon="🎬", layout="wide")
 st.title("🎬 Movie Recommender")
 
-# --- stable user id across reruns
-user_id = st.number_input("Active user ID", min_value=1, value=1001, step=1, key="user_id_input")
+# ----------------- Styles -----------------
+st.markdown("""
+<style>
+/* Tighter, consistent card layout */
+.movie-card {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 16px;
+  padding: 12px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
 
-# --- one-time flag so we fetch API likes on first load
-if "_force_liked_reload" not in st.session_state:
-    st.session_state["_force_liked_reload"] = True
+/* Remove the faint “pill” above each poster by making wrapper transparent and reset height */
+.poster-wrap {
+  width: 100%;
+  border-radius: 12px;
+  overflow: hidden;
+  background: transparent; /* was #222 causing a pill look in some themes */
+}
 
-# local cache container (non-destructive)
-if "likes_cache" not in st.session_state:
-    st.session_state["likes_cache"] = {}
-_ = st.session_state["likes_cache"].setdefault(int(user_id), {})
+/* Poster keeps aspect ratio */
+.poster {
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  object-fit: cover;
+  display: block;
+}
 
+/* Title = at most 2 lines to keep rows tidy */
+.title {
+  font-weight: 700;
+  font-size: 1rem;
+  line-height: 1.25;
+  min-height: 2.5em;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
 
-# ------------- Helpers -------------
+/* Fixed-height overview box with ellipsis (8 lines for roomier copy) */
+.overview-clamp {
+  font-size: 0.98rem;
+  color: #d6d6d6;
+  display: -webkit-box;
+  -webkit-line-clamp: 8;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-height: 10.8em;  /* calibrate: ~8 lines at default Streamlit font size */
+  margin-right: 2px;
+}
+
+/* A fixed space holder to keep rows aligned where "Read more…" isn’t shown */
+.readmore-placeholder {
+  height: 46px;               /* matches Streamlit button height with padding */
+  border-radius: 0.5rem;
+  border: 1px solid transparent;
+  margin-top: 4px;
+}
+
+/* Keep the unlike row anchored to the bottom of each card */
+.spacer-flex {
+  flex: 1 1 auto;
+}
+
+/* Make rows breathe a bit */
+.card-bottom-gap {
+  height: 8px;
+}
+
+/* Slightly bigger gap between columns */
+.block-container .stColumns {
+  gap: 2rem !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# ----------------- Helpers -----------------
 def safe_get(url: str, **kwargs):
     try:
         r = requests.get(url, timeout=kwargs.pop("timeout", 30), **kwargs)
@@ -49,9 +117,7 @@ def safe_delete(url: str, **kwargs):
         return (False, f"Request error: {e}")
 
 def to_csv_bytes(rows, field_order=None):
-    import io as _io
-    import csv as _csv
-    buf = _io.StringIO()
+    buf = io.StringIO()
     if not rows:
         rows = []
     if field_order is None:
@@ -60,7 +126,7 @@ def to_csv_bytes(rows, field_order=None):
             if isinstance(r, dict):
                 keys.update(r.keys())
         field_order = sorted(keys) if keys else []
-    writer = _csv.DictWriter(buf, fieldnames=field_order)
+    writer = csv.DictWriter(buf, fieldnames=field_order)
     writer.writeheader()
     for r in rows:
         if isinstance(r, dict):
@@ -68,7 +134,6 @@ def to_csv_bytes(rows, field_order=None):
     return buf.getvalue().encode("utf-8")
 
 def parse_dt(dt_str):
-    """Best-effort parse for created_at; returns datetime or None."""
     if not dt_str:
         return None
     for fmt in ("%Y-%m-%dT%H:%M:%S.%fZ", "%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
@@ -78,46 +143,33 @@ def parse_dt(dt_str):
             continue
     return None
 
-def ensure_movie_dict(x, cache_map):
-    """
-    Build a movie-like dict from an interaction row (x).
-    If API doesn't include metadata, fall back to cache_map by movie_id.
-    """
-    mid = (x or {}).get("movie_id")
-    if mid in cache_map:
-        return cache_map[mid]
-    return {
-        "movie_id": mid,
-        "title": x.get("title"),
-        "year": x.get("year"),
-        "overview": x.get("overview"),
-        "poster_path": x.get("poster_path"),
-        "genres": x.get("genres"),
-    }
+def normalize_text(text: str) -> str:
+    if not text:
+        return ""
+    return re.sub(r"\s+", " ", str(text)).strip()
 
-def on_unlike(m, user_id, api_base):
-    uid = int(user_id)
-    mid = int(m["movie_id"])
-    ok, resp = safe_delete(f"{api_base}/interactions/{uid}/{mid}", timeout=15)
-    if ok:
-        st.success(f"Unliked {m['title']}!")
-        # Optimistically remove from cache if you have one
-        st.session_state.get("likes_cache", {}).get(uid, {}).pop(mid, None)
-        # Force reload liked list and rerun app
-        st.session_state["_force_liked_reload"] = True
-        st.rerun()
-    else:
-        st.error(str(resp))
+# ----------------- Session init -----------------
+if "_force_liked_reload" not in st.session_state:
+    st.session_state["_force_liked_reload"] = True
+if "similar_results" not in st.session_state:
+    st.session_state["similar_results"] = []
+if "similar_title" not in st.session_state:
+    st.session_state["similar_title"] = ""
+if "likes_cache" not in st.session_state:
+    st.session_state["likes_cache"] = {}
+if "profiles" not in st.session_state:
+    st.session_state["profiles"] = {}
+if "recommendation_results" not in st.session_state:
+    st.session_state["recommendation_results"] = []
+if "browse_results" not in st.session_state:
+    st.session_state["browse_results"] = []
 
-# ------------- Sidebar -------------
+# ----------------- Sidebar -----------------
 with st.sidebar:
     st.header("Settings")
     api_base = st.text_input("API base URL", value=DEFAULT_API)
     user_id = st.number_input("Active user ID", min_value=1, value=1001, step=1, key="user_id_input")
 
-    # simple local profile store (per user_id)
-    if "profiles" not in st.session_state:
-        st.session_state["profiles"] = {}  # { user_id: {"display_name": "...", "bio": "..."} }
     profile = st.session_state["profiles"].setdefault(int(user_id), {"display_name": "", "bio": ""})
     profile["display_name"] = st.text_input("Display name (local)", value=profile.get("display_name", ""))
     profile["bio"] = st.text_area("Bio (local)", value=profile.get("bio", ""), height=80)
@@ -137,112 +189,136 @@ with st.sidebar:
 
 st.markdown("---")
 
-# ------------- Session for "Similar" -------------
-if "similar_results" not in st.session_state:
-    st.session_state["similar_results"] = []
-if "similar_title" not in st.session_state:
-    st.session_state["similar_title"] = ""
-
-# ------------- Session for per-user liked movies cache (instant UI updates) -------------
-if "likes_cache" not in st.session_state:
-    st.session_state["likes_cache"] = {}  # { user_id: {movie_id: movie_dict} }
+# Ensure per-user cache exists
 _ = st.session_state["likes_cache"].setdefault(int(user_id), {})
 
-# ------------- Grid Renderer -------------
-def render_movie_grid(movies, cols=4, show_like=True, show_similar=True, show_unlike=False, similar_limit=12, section="default"):
-    grid_cols = st.columns(cols)
-    for i, m in enumerate(movies or []):
+# ----------------- Grid Renderer -----------------
+def render_movie_grid(
+    movies,
+    cols=4,
+    show_like=True,
+    show_similar=True,
+    show_unlike=False,
+    similar_limit=12,
+    section="default",
+    profile_mode=False,           # NEW: profile layout (3 columns, larger desc, consistent spacing)
+):
+    if not movies:
+        return
+
+    # For profile we want 3 columns and bigger “grid gap”
+    if profile_mode:
+        cols = 3
+
+    col_objs = st.columns(cols, gap="large")
+    for i, m in enumerate(movies):
         if not isinstance(m, dict):
             continue
-        with grid_cols[i % cols]:
-            poster = m.get("poster_path")
-            title = m.get("title") or "Untitled"
+
+        with col_objs[i % cols]:
+            raw_title = (m.get("title") or "Untitled").strip()
             year = m.get("year")
-            overview = m.get("overview")
+            title = f"{raw_title} ({year})" if year else raw_title
+            poster = (m.get("poster_path") or "").strip()
+            overview_full = normalize_text(m.get("overview"))
+            mid = m.get("movie_id")
 
+            st.markdown('<div class="movie-card">', unsafe_allow_html=True)
+
+            # Poster (transparent wrapper to remove the “pill”)
             if poster:
-                st.image(poster, caption=title, width=300)
+                st.markdown(
+                    f'<div class="poster-wrap"><img class="poster" src="{poster}" alt="{raw_title} poster" /></div>',
+                    unsafe_allow_html=True
+                )
             else:
-                st.caption(title)
-            if year:
-                st.caption(f"{year}")
+                st.markdown(
+                    '<div class="poster-wrap"><div class="poster" style="display:flex;align-items:center;justify-content:center;color:#777;">No Poster</div></div>',
+                    unsafe_allow_html=True
+                )
 
-            # Dynamic button layout based on what buttons are shown
-            buttons_needed = sum([show_like, show_similar, show_unlike])
-            if buttons_needed == 1:
-                b1 = st.container()
-                b2 = None
-                b3 = None
-            elif buttons_needed == 2:
-                b1, b2 = st.columns(2)
-                b3 = None
+            # Title (no duplicate year added later)
+            st.markdown(f'<div class="title">{title}</div>', unsafe_allow_html=True)
+
+            # Overview (fixed height, then optional Read more…)
+            if overview_full:
+                st.markdown(f'<div class="overview-clamp">{overview_full}</div>', unsafe_allow_html=True)
+                # Show popover only when it actually needs truncation
+                if len(overview_full) > 300:
+                    with st.popover("Read more …", use_container_width=True):
+                        st.write(overview_full)
+                else:
+                    # Keep rows aligned by inserting a placeholder of the same height
+                    st.markdown('<div class="readmore-placeholder"></div>', unsafe_allow_html=True)
             else:
-                b1, b2, b3 = st.columns(3)
-            
-            button_idx = 0
-            if show_like and m.get("movie_id") is not None:
-                with [b1, b2, b3][button_idx]:
-                    if st.button(f"👍 Like #{m['movie_id']}", key=f"{section}_like_{m['movie_id']}"):
-                        payload = {"user_id": int(user_id), "movie_id": int(m["movie_id"]), "interaction_type": "like"}
-                        ok, resp = safe_post(f"{api_base}/interactions", json=payload, timeout=15)
-                        if ok:
-                            st.success("Saved!")
-                            # Add to likes cache so it shows up instantly in Profile
-                            uid = int(user_id)
-                            cache = st.session_state["likes_cache"].setdefault(uid, {})
-                            cache[m["movie_id"]] = {
-                                "movie_id": m.get("movie_id"),
-                                "title": m.get("title"),
-                                "year": m.get("year"),
-                                "overview": m.get("overview"),
-                                "poster_path": m.get("poster_path"),
-                                "genres": m.get("genres"),
-                            }
-                        else:
-                            st.error(str(resp))
-                button_idx += 1
+                # No overview: reserve the space anyway so buttons align
+                st.markdown('<div class="overview-clamp"></div>', unsafe_allow_html=True)
+                st.markdown('<div class="readmore-placeholder"></div>', unsafe_allow_html=True)
 
-            if show_unlike and m.get("movie_id") is not None:
-                with [b1, b2, b3][button_idx]:
-                    if st.button(f"💔 Unlike", key=f"{section}_unlike_{m['movie_id']}"):
-                        ok, resp = safe_delete(f"{api_base}/interactions/{int(user_id)}/{int(m['movie_id'])}", timeout=15)
-                        if ok:
-                            st.success("Unliked!")
-                            # Remove from cache
-                            uid = int(user_id)
-                            cache = st.session_state["likes_cache"].get(uid, {})
-                            cache.pop(m["movie_id"], None)
-                            # Force reload of liked movies
-                            st.session_state["_force_liked_reload"] = True
-                            st.rerun()
-                        else:
-                            st.error(str(resp))
-                button_idx += 1
+            # Push actions to bottom consistently
+            st.markdown('<div class="spacer-flex"></div>', unsafe_allow_html=True)
 
-            if show_similar and m.get("movie_id") is not None:
-                with [b1, b2, b3][button_idx]:
-                    if st.button("🎯 Similar", key=f"{section}_sim_{m['movie_id']}"):
-                        ok, resp = safe_get(
-                            f"{api_base}/similar/{int(m['movie_id'])}",
-                            params={"limit": int(similar_limit)},
-                            timeout=30,
-                        )
-                        if ok:
-                            st.session_state["similar_results"] = resp
-                            st.session_state["similar_title"] = title
-                        else:
-                            st.warning(str(resp))
+            # Action buttons (horizontal)
+            btn_defs = []
+            if show_like and mid is not None:
+                btn_defs.append(("👍 Like", f"{section}_like_{mid}"))
+            if show_unlike and mid is not None:
+                btn_defs.append(("💔 Unlike", f"{section}_unlike_{mid}"))
+            if show_similar and mid is not None:
+                btn_defs.append(("🎯 Similar", f"{section}_sim_{mid}"))
 
-            if overview:
-                text = str(overview)
-                st.write(text[:220] + ("..." if len(text) > 220 else ""))
-            st.write("---")
+            if btn_defs:
+                bcols = st.columns(len(btn_defs), gap="small")
+                for idx, (label, key) in enumerate(btn_defs):
+                    with bcols[idx]:
+                        if st.button(label, key=key, use_container_width=True):
+                            if label.startswith("👍"):
+                                payload = {"user_id": int(user_id), "movie_id": int(mid), "interaction_type": "like"}
+                                ok, resp = safe_post(f"{api_base}/interactions", json=payload, timeout=15)
+                                if ok:
+                                    st.success("Saved!")
+                                    uid = int(user_id)
+                                    cache = st.session_state["likes_cache"].setdefault(uid, {})
+                                    cache[mid] = {
+                                        "movie_id": m.get("movie_id"),
+                                        "title": m.get("title"),
+                                        "year": m.get("year"),
+                                        "overview": m.get("overview"),
+                                        "poster_path": m.get("poster_path"),
+                                        "genres": m.get("genres"),
+                                    }
+                                else:
+                                    st.error(str(resp))
+                            elif label.startswith("💔"):
+                                ok, resp = safe_delete(f"{api_base}/interactions/{int(user_id)}/{int(mid)}", timeout=15)
+                                if ok:
+                                    st.success("Unliked!")
+                                    uid = int(user_id)
+                                    st.session_state["likes_cache"].get(uid, {}).pop(mid, None)
+                                    st.session_state["_force_liked_reload"] = True
+                                    st.rerun()
+                                else:
+                                    st.error(str(resp))
+                            elif label.startswith("🎯"):
+                                ok, resp = safe_get(
+                                    f"{api_base}/similar/{int(mid)}",
+                                    params={"limit": int(similar_limit)},
+                                    timeout=30,
+                                )
+                                if ok:
+                                    st.session_state["similar_results"] = resp
+                                    st.session_state["similar_title"] = raw_title
+                                else:
+                                    st.warning(str(resp))
 
-# ------------- Tabs -------------
+            st.markdown('<div class="card-bottom-gap"></div>', unsafe_allow_html=True)
+            st.markdown('</div>', unsafe_allow_html=True)  # end .movie-card
+            st.write("")  # spacer
+
+# ----------------- Tabs -----------------
 home_tab, profile_tab = st.tabs(["🏠 Home", "👤 Profile"])
 
 with home_tab:
-    # --- Search & like ---
     st.subheader("🔎 Search movies and 👍 like them")
     q = st.text_input("Search by title", placeholder="e.g., Inception", key="search_q")
     if q:
@@ -256,12 +332,11 @@ with home_tab:
         else:
             st.error(str(data))
 
-    # --- Similar to selected ---
     if st.session_state["similar_results"]:
         st.subheader(f"🎯 Similar to: {st.session_state['similar_title']}")
         render_movie_grid(
             st.session_state["similar_results"],
-            cols=6,
+            cols=4,
             show_like=True,
             show_similar=False,
             section="similar",
@@ -269,34 +344,31 @@ with home_tab:
 
     st.markdown("---")
 
-    # --- User-based recommendations ---
     st.subheader("👤 Recommendations for the active user")
     k = st.slider("How many results?", 1, 30, 10, key="rec_k")
-    
-    # Initialize session state for recommendations
-    if "recommendation_results" not in st.session_state:
-        st.session_state["recommendation_results"] = []
-    
     if st.button("Get Recommendations"):
         ok, data = safe_get(f"{api_base}/recommendations/{int(user_id)}", params={"limit": int(k)}, timeout=30)
         if ok:
             items = (data or {}).get("items", [])
-            if items:
-                st.session_state["recommendation_results"] = items
-            else:
-                st.session_state["recommendation_results"] = []
+            st.session_state["recommendation_results"] = items or []
+            if not items:
                 st.info("No recommendations yet. Try liking a few movies first.")
         else:
             st.session_state["recommendation_results"] = []
             st.error(str(data))
-    
-    # Display recommendations if they exist
+
     if st.session_state["recommendation_results"]:
-        render_movie_grid(st.session_state["recommendation_results"], cols=5, show_like=True, show_similar=True, similar_limit=12, section="recommendations")
+        render_movie_grid(
+            st.session_state["recommendation_results"],
+            cols=4,
+            show_like=True,
+            show_similar=True,
+            similar_limit=12,
+            section="recommendations",
+        )
 
     st.markdown("---")
 
-    # --- Browse All Movies ---
     st.subheader("🎬 Browse All Movies")
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -305,10 +377,6 @@ with home_tab:
         genre_filter = st.selectbox("Filter by genre", ["", "Action", "Comedy", "Drama", "Horror", "Sci-Fi", "Thriller"])
     with col3:
         year_filter = st.selectbox("Filter by year", ["", "2020+", "2010-2019", "2000-2009", "1990-1999"])
-
-    # Initialize session state for browse results
-    if "browse_results" not in st.session_state:
-        st.session_state["browse_results"] = []
 
     if st.button("Browse Movies"):
         params = {"limit": browse_limit}
@@ -325,19 +393,22 @@ with home_tab:
 
         ok, data = safe_get(f"{api_base}/movies", params=params, timeout=30)
         if ok:
-            movies = data or []
-            if movies:
-                st.session_state["browse_results"] = movies
-            else:
-                st.session_state["browse_results"] = []
+            st.session_state["browse_results"] = data or []
+            if not st.session_state["browse_results"]:
                 st.info("No movies found with those filters.")
         else:
             st.session_state["browse_results"] = []
             st.error(str(data))
 
-    # Display browse results if they exist
     if st.session_state["browse_results"]:
-        render_movie_grid(st.session_state["browse_results"], cols=4, show_like=True, show_similar=True, similar_limit=12, section="browse_movies")
+        render_movie_grid(
+            st.session_state["browse_results"],
+            cols=4,
+            show_like=True,
+            show_similar=True,
+            similar_limit=12,
+            section="browse_movies",
+        )
 
 with profile_tab:
     st.subheader("👤 Profile")
@@ -345,7 +416,7 @@ with profile_tab:
     # Header card
     colA, colB = st.columns([1, 3])
     with colA:
-        initials = (profile["display_name"].strip()[:1] or str(user_id)[:1]).upper()
+        initials = (st.session_state["profiles"][int(user_id)]["display_name"].strip()[:1] or str(user_id)[:1]).upper()
         st.markdown(f"""
         <div style="width:96px;height:96px;border-radius:50%;background:#eee;display:flex;align-items:center;justify-content:center;font-size:36px;">
             {initials}
@@ -353,10 +424,11 @@ with profile_tab:
         """, unsafe_allow_html=True)
     with colB:
         st.markdown(f"**User ID:** `{int(user_id)}`")
-        if profile.get("display_name"):
-            st.markdown(f"**Name:** {profile['display_name']}")
-        if profile.get("bio"):
-            st.markdown(f"> {profile['bio']}")
+        prof = st.session_state["profiles"][int(user_id)]
+        if prof.get("display_name"):
+            st.markdown(f"**Name:** {prof['display_name']}")
+        if prof.get("bio"):
+            st.markdown(f"> {prof['bio']}")
 
     st.markdown("---")
 
@@ -367,7 +439,7 @@ with profile_tab:
             st.session_state["likes_cache"].pop(int(user_id), None)
             st.session_state["likes_cache"][int(user_id)] = {}
 
-    # Fetch liked movies from new API endpoint
+    # Fetch liked movies from API (once, or when forced)
     liked_movies_api = []
     if st.session_state.get("_force_liked_reload", True):
         ok, data = safe_get(f"{api_base}/users/{int(user_id)}/liked", params={"limit": 500}, timeout=30)
@@ -376,30 +448,27 @@ with profile_tab:
         else:
             st.warning(str(data) if not ok else "Unexpected response shape from /users/{id}/liked")
         st.session_state["_force_liked_reload"] = False
-
-    # Use liked movies count as total for now (to avoid 422 error)
-    total_interactions = len(liked_movies_api)
+    else:
+        ok, data = safe_get(f"{api_base}/users/{int(user_id)}/liked", params={"limit": 500}, timeout=30)
+        if ok and isinstance(data, list):
+            liked_movies_api = data
 
     # Merge API likes with local cache for instant UI
     uid = int(user_id)
-    cache_map = st.session_state["likes_cache"].get(uid, {})  # {movie_id: movie_dict}
-
-    # Create merged liked movies list
+    cache_map = st.session_state["likes_cache"].get(uid, {})
     merged = {}
     for m in liked_movies_api:
         if m.get("movie_id") is not None:
             merged[m["movie_id"]] = m
     for mid, m in cache_map.items():
         merged[mid] = {**merged.get(mid, {}), **m}
-
     liked_movies = list(merged.values())
 
     # Basic stats
-    st.metric("Total interactions", total_interactions)
+    st.metric("Total interactions", len(liked_movies_api))
     st.metric("Liked movies", len(liked_movies))
 
     if liked_movies:
-        # CSV export
         csv_bytes = to_csv_bytes(liked_movies, field_order=[
             "movie_id","title","year","overview","poster_path","genres"
         ])
@@ -410,7 +479,6 @@ with profile_tab:
             mime="text/csv"
         )
 
-        # Genre preferences chart in expandable section
         with st.expander("📊 View Genre Preferences"):
             genres = []
             for m in liked_movies:
@@ -438,69 +506,31 @@ with profile_tab:
 
         st.markdown("---")
 
-        # My Liked Movies section (main display)
+        # 💖 My Liked Movies — profile layout on (3 columns, bigger desc, aligned buttons)
         st.subheader("🎬 My Liked Movies")
         render_movie_grid(
-            liked_movies[:24],  # Show up to 24 movies to avoid overwhelming the UI
-            cols=6, 
-            show_like=False, 
-            show_similar=False,  # Remove similar buttons from profile
-            show_unlike=True,   # Add unlike buttons
-            similar_limit=12, 
-            section="liked_movies"
+            liked_movies,
+            cols=3,                      # explicitly 3 per row
+            show_like=False,
+            show_similar=False,
+            show_unlike=True,
+            similar_limit=12,
+            section="liked_movies",
+            profile_mode=True,
         )
 
-        if len(liked_movies) > 24:
-            st.info(f"Showing 24 of {len(liked_movies)} liked movies. Download CSV for complete list.")
-
-        # Similar results from clicked movies (same as Home tab)
+        # Similar results (if previously clicked)
         if st.session_state["similar_results"]:
             st.markdown("---")
             st.subheader(f"🎯 Similar to: {st.session_state['similar_title']}")
             render_movie_grid(
                 st.session_state["similar_results"],
-                cols=6,
+                cols=3,
                 show_like=True,
                 show_similar=False,
                 section="profile_similar",
+                profile_mode=True,
             )
 
-        # Because you liked section (randomly selected from user's likes)
-        if liked_movies:
-            import random
-
-            # Keep a small counter in session state to rotate the random seed
-            refresh_key = "refresh_recommendations"
-            if refresh_key not in st.session_state:
-                st.session_state[refresh_key] = 0
-
-            # Use a deterministic seed for the current refresh cycle, so the UI is stable until user clicks refresh
-            random.seed(st.session_state[refresh_key])
-            seed_movie = random.choice(liked_movies)  # pick from what the Profile is actually showing
-
-            if seed_movie and seed_movie.get("movie_id"):
-                st.markdown('---')
-                st.subheader(f"🎯 Because you liked **{seed_movie.get('title', 'this movie')}**")
-                ok, recs = safe_get(
-                    f"{api_base}/similar/{int(seed_movie['movie_id'])}",
-                    params={"limit": 12},
-                    timeout=30
-                )
-                if ok and isinstance(recs, list) and recs:
-                    render_movie_grid(
-                        recs,
-                        cols=6,
-                        show_like=True,
-                        show_similar=True,
-                        similar_limit=12,
-                        section="seed_recs",
-                    )
-                else:
-                    st.info("No similar recommendations available right now.")
-
-                # Rotate the seed on demand
-                if st.button("🔄 Try another movie", key="refresh_seed"):
-                    st.session_state[refresh_key] += 1
-                    st.rerun()
-        else:
-            st.info("No liked movies yet. Like some on the Home tab!")
+    else:
+        st.info("No liked movies yet. Like some on the Home tab!")

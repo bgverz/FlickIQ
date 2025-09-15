@@ -54,7 +54,7 @@ Create a `.env` file in the project root:
 
 ```env
 # Database Configuration
-DATABASE_URL=postgresql+psycopg://postgres:YOUR_PASSWORD@YOUR_HOST:5432/postgres?sslmode=require
+DATABASE_URL=postgresql+psycopg://postgres.pzywmzybolnmtqenwydj:YOUR_PASSWORD@aws-1-us-east-2.pooler.supabase.com:5432/postgres?sslmode=require
 
 # Supabase (if using)
 SUPABASE_URL=https://your-project.supabase.co
@@ -75,7 +75,7 @@ POSTER_PLACEHOLDER=https://placehold.co/342x513?text=No+Poster
 # CREATE EXTENSION IF NOT EXISTS vector;
 
 # Set up database schema
-export DATABASE_URL="postgresql://postgres:YOUR_PASSWORD@YOUR_HOST:5432/postgres?sslmode=require"
+export DATABASE_URL="postgresql+psycopg://postgres.pzywmzybolnmtqenwydj:YOUR_PASSWORD@aws-1-us-east-2.pooler.supabase.com:5432/postgres?sslmode=require"
 python -m data.load_schema
 ```
 ### 4. Start Services

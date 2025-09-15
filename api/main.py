@@ -52,7 +52,6 @@ DSN = _normalize_pg_dsn(DATABASE_URL)
 VECTOR_METRIC = os.environ.get("VECTOR_METRIC", "cosine").lower().strip()
 DIST_OP = "<=>" if VECTOR_METRIC == "cosine" else "<->"
 
-# posters URLs
 TMDB_IMAGE_BASE = os.environ.get("TMDB_IMAGE_BASE", "https://image.tmdb.org/t/p/w342")
 POSTER_PLACEHOLDER = os.environ.get("POSTER_PLACEHOLDER", "https://placehold.co/342x513?text=No+Poster")
 
@@ -104,6 +103,16 @@ def _join_poster(p: Optional[str]) -> str:
     if p.startswith("http://") or p.startswith("https://"):
         return p
     return f"{TMDB_IMAGE_BASE}{p}"
+
+def _quality_filters_sql():
+    """Returns SQL WHERE conditions to filter out low-quality movies"""
+    return """
+    AND poster_path IS NOT NULL 
+    AND poster_path != '' 
+    AND overview IS NOT NULL 
+    AND overview != ''
+    AND LENGTH(overview) > 50
+    """
 
 def _movie_from_row(row: Tuple[Any, ...]) -> Movie:
     mid, title, year, overview, poster, genres = row
@@ -304,10 +313,13 @@ def get_liked_movies(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/movies/search", tags=["Movies"])
-def search_movies(q: str = Query(..., min_length=1), limit: int = Query(20, ge=1, le=100)):
+def search_movies(
+    q: str = Query(..., min_length=1), 
+    limit: int = Query(20, ge=1, le=100),
+    include_low_quality: bool = Query(False, description="Include movies without posters/descriptions")
+):
     try:
         with get_conn() as conn, conn.cursor() as cur:
-            # Clean the search query
             clean_q = q.strip().lower()
             
             for article in ['the ', 'a ', 'an ']:
@@ -315,14 +327,16 @@ def search_movies(q: str = Query(..., min_length=1), limit: int = Query(20, ge=1
                     clean_q = clean_q[len(article):]
                     break
             
-            # Search with multiple patterns to catch different title formats
+            quality_filter = "" if include_low_quality else _quality_filters_sql()
+            
             cur.execute(
-                """
+                f"""
                 SELECT movie_id, title, year, overview, poster_path, genres
                 FROM movies
-                WHERE lower(title) LIKE lower(%s)
+                WHERE (lower(title) LIKE lower(%s)
                    OR lower(title) LIKE lower(%s)
-                   OR lower(title) LIKE lower(%s)
+                   OR lower(title) LIKE lower(%s))
+                {quality_filter}
                 ORDER BY 
                     CASE 
                         WHEN lower(title) LIKE lower(%s) THEN 1
@@ -429,15 +443,22 @@ def recommendations(user_id: int, limit: int = Query(10, ge=1, le=100)):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/trending", response_model=List[Movie], tags=["Trending"])
-def trending(days: int = Query(7, ge=1, le=30), limit: int = Query(20, ge=1, le=100)):
+def trending(
+    days: int = Query(7, ge=1, le=30), 
+    limit: int = Query(20, ge=1, le=100),
+    include_low_quality: bool = Query(False, description="Include movies without posters/descriptions")
+):
     try:
         with get_conn() as conn, conn.cursor() as cur:
+            quality_filter = "" if include_low_quality else _quality_filters_sql()
+            
             cur.execute(
-                """
+                f"""
                 SELECT m.movie_id, m.title, m.year, m.overview, m.poster_path, m.genres
                 FROM public.interactions i
                 JOIN public.movies m ON m.movie_id = i.movie_id
                 WHERE i.interacted_at >= now() - (%s || ' days')::interval
+                {quality_filter}
                 GROUP BY m.movie_id, m.title, m.year, m.overview, m.poster_path, m.genres
                 ORDER BY COUNT(*) DESC
                 LIMIT %s
@@ -455,11 +476,13 @@ def get_all_movies(
     offset: int = Query(0, ge=0, description="Number of movies to skip"),
     genre: Optional[str] = Query(None, description="Filter by genre"),
     year_min: Optional[int] = Query(None, ge=1900, description="Minimum year"),
-    year_max: Optional[int] = Query(None, le=2030, description="Maximum year")
+    year_max: Optional[int] = Query(None, le=2030, description="Maximum year"),
+    include_low_quality: bool = Query(False, description="Include movies without posters/descriptions")
 ):
     """
     Get all movies with their overviews and posters.
     Supports pagination and optional filtering by genre and year range.
+    By default, excludes movies without posters or proper descriptions.
     """
     try:
         with get_conn() as conn, conn.cursor() as cur:
@@ -477,6 +500,15 @@ def get_all_movies(
             if year_max:
                 where_conditions.append("year <= %s")
                 params.append(year_max)
+            
+            if not include_low_quality:
+                where_conditions.extend([
+                    "poster_path IS NOT NULL",
+                    "poster_path != ''",
+                    "overview IS NOT NULL", 
+                    "overview != ''",
+                    "LENGTH(overview) > 50"
+                ])
             
             where_clause = ""
             if where_conditions:

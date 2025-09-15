@@ -14,89 +14,174 @@ DEFAULT_API = os.environ.get("API_BASE", "http://127.0.0.1:8000")
 st.set_page_config(page_title="Movie Recommender", page_icon="🎬", layout="wide")
 st.title("🎬 Movie Recommender")
 
-# ----------------- Styles -----------------
+# ----------------- Enhanced Styles -----------------
 st.markdown("""
 <style>
-/* Tighter, consistent card layout */
+/* Modern, clean movie card design */
 .movie-card {
-  background: rgba(255,255,255,0.03);
-  border: 1px solid rgba(255,255,255,0.06);
-  border-radius: 16px;
-  padding: 12px;
+  background: linear-gradient(145deg, rgba(30, 32, 44, 0.9), rgba(40, 42, 56, 0.95));
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 20px;
+  padding: 16px;
   height: 100%;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  position: relative;
+  overflow: hidden;
 }
 
-/* Remove the faint “pill” above each poster by making wrapper transparent and reset height */
+.movie-card:hover {
+  transform: translateY(-4px);
+  border-color: rgba(255, 255, 255, 0.15);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.25);
+}
+
+/* Subtle gradient overlay for depth */
+.movie-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.02) 0%, rgba(255, 255, 255, 0) 50%, rgba(0, 0, 0, 0.1) 100%);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.movie-card > * {
+  position: relative;
+  z-index: 2;
+}
+
+/* Clean poster styling */
 .poster-wrap {
   width: 100%;
-  border-radius: 12px;
+  border-radius: 16px;
   overflow: hidden;
-  background: transparent; /* was #222 causing a pill look in some themes */
+  background: rgba(255, 255, 255, 0.05);
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+  transition: transform 0.3s ease;
 }
 
-/* Poster keeps aspect ratio */
+.movie-card:hover .poster-wrap {
+  transform: scale(1.02);
+}
+
 .poster {
   width: 100%;
   aspect-ratio: 2 / 3;
   object-fit: cover;
   display: block;
+  transition: opacity 0.3s ease;
 }
 
-/* Title = at most 2 lines to keep rows tidy */
+.poster:hover {
+  opacity: 0.9;
+}
+
+/* Typography improvements */
 .title {
   font-weight: 700;
-  font-size: 1rem;
-  line-height: 1.25;
-  min-height: 2.5em;
+  font-size: 1.1rem;
+  line-height: 1.3;
+  color: #ffffff;
+  margin-bottom: 8px;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
 }
 
-/* Fixed-height overview box with ellipsis (8 lines for roomier copy) */
+/* Fixed-height overview with better readability */
 .overview-clamp {
-  font-size: 0.98rem;
-  color: #d6d6d6;
+  font-size: 0.9rem;
+  color: #b8bcc8;
+  line-height: 1.5;
   display: -webkit-box;
-  -webkit-line-clamp: 8;
+  -webkit-line-clamp: 4;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  min-height: 10.8em;  /* calibrate: ~8 lines at default Streamlit font size */
-  margin-right: 2px;
+  height: 5.4em;
+  margin-bottom: 8px;
+  text-align: justify;
 }
 
-/* A fixed space holder to keep rows aligned where "Read more…" isn’t shown */
-.readmore-placeholder {
-  height: 46px;               /* matches Streamlit button height with padding */
-  border-radius: 0.5rem;
-  border: 1px solid transparent;
-  margin-top: 4px;
+/* Genre tags styling */
+.genre-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
 }
 
-/* Keep the unlike row anchored to the bottom of each card */
+.genre-tag {
+  background: linear-gradient(135deg, rgba(100, 200, 255, 0.15), rgba(50, 150, 255, 0.15));
+  color: #87ceeb;
+  padding: 4px 8px;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  border: 1px solid rgba(100, 200, 255, 0.2);
+}
+
+/* Modern button styling */
+.stButton > button {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+  border: none !important;
+  border-radius: 12px !important;
+  padding: 8px 16px !important;
+  font-weight: 600 !important;
+  font-size: 0.85rem !important;
+  transition: all 0.3s ease !important;
+  color: white !important;
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3) !important;
+}
+
+.stButton > button:hover {
+  transform: translateY(-2px) !important;
+  box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4) !important;
+  background: linear-gradient(135deg, #7c93f0 0%, #8a5ab2 100%) !important;
+}
+
+/* Spacer for card alignment */
 .spacer-flex {
   flex: 1 1 auto;
 }
 
-/* Let rows breathe a bit */
-.card-bottom-gap {
-  height: 8px;
+/* Card spacing and grid improvements */
+.block-container .stColumns {
+  gap: 24px !important;
 }
 
-/* Slightly bigger gap between columns */
-.block-container .stColumns {
-  gap: 2rem !important;
+.card-bottom-gap {
+  height: 12px;
 }
-            
-/* Compact autocomplete styling */
+
+/* Search input improvements */
+.stTextInput > div > div > input {
+  border-radius: 12px !important;
+  border: 2px solid rgba(255, 255, 255, 0.1) !important;
+  background: rgba(255, 255, 255, 0.05) !important;
+  color: white !important;
+  font-size: 1rem !important;
+  padding: 12px 16px !important;
+}
+
+.stTextInput > div > div > input:focus {
+  border-color: rgba(102, 126, 234, 0.5) !important;
+  box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2) !important;
+}
+
+/* Autocomplete styling */
 .autocomplete-results {
     background: rgba(40, 42, 54, 0.95);
     border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 8px;
+    border-radius: 12px;
     margin-top: -10px;
     padding: 8px 0;
     max-height: 300px;
@@ -104,38 +189,46 @@ st.markdown("""
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 
-.autocomplete-item {
-    padding: 8px 16px;
-    margin: 0 8px 4px 8px;
-    border-radius: 4px;
-    background: transparent;
-    border: none;
-    color: #ffffff;
-    text-align: left;
-    font-size: 14px;
-    cursor: pointer;
-    transition: background-color 0.2s;
-}
-
-.autocomplete-item:hover {
-    background: rgba(255, 255, 255, 0.1);
-}
-
-/* Make buttons look more like dropdown items */
 div[data-testid="column"] > div > button {
     background: transparent !important;
     border: none !important;
     padding: 8px 16px !important;
     margin: 2px 8px !important;
-    border-radius: 4px !important;
+    border-radius: 8px !important;
     text-align: left !important;
     font-size: 14px !important;
+    transition: background-color 0.2s !important;
 }
 
 div[data-testid="column"] > div > button:hover {
     background: rgba(255, 255, 255, 0.1) !important;
 }
-            
+
+/* Profile section improvements */
+.user-profile-card {
+  background: linear-gradient(145deg, rgba(40, 42, 56, 0.8), rgba(50, 52, 66, 0.9));
+  border-radius: 20px;
+  padding: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .movie-card {
+    margin-bottom: 16px;
+  }
+  
+  .title {
+    font-size: 1rem;
+  }
+  
+  .overview-clamp {
+    font-size: 0.85rem;
+    -webkit-line-clamp: 3;
+    height: 3.8em;
+  }
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -208,29 +301,6 @@ def clean_movie_title(title, year=None):
     else:
         return clean_title
 
-def search_movies_function(searchterm: str):
-    """
-    Function to search movies - required by st_searchbox
-    Must return a list of tuples: (display_value, return_value)
-    """
-    if not searchterm or len(searchterm) < 2:
-        return []
-    
-    try:
-        ok, data = safe_get(f"{DEFAULT_API}/movies/search", params={"q": searchterm, "limit": 10}, timeout=15)
-        if ok and data:
-            results = []
-            for movie in data:
-                title = movie.get('title', 'Untitled')
-                year = movie.get('year')
-                display_title = clean_movie_title(title, year)
-                results.append((display_title, movie))
-            return results
-    except Exception as e:
-        print(f"Search error: {e}")
-    
-    return []
-
 # ----------------- Session init -----------------
 if "_force_liked_reload" not in st.session_state:
     st.session_state["_force_liked_reload"] = True
@@ -274,7 +344,19 @@ st.markdown("---")
 
 _ = st.session_state["likes_cache"].setdefault(int(user_id), {})
 
-# ----------------- Grid Renderer -----------------
+# ----------------- Enhanced Grid Renderer -----------------
+def filter_quality_movies(movies):
+    """Filter out movies with missing poster or overview"""
+    quality_movies = []
+    for movie in movies:
+        poster = (movie.get("poster_path") or "").strip()
+        overview = (movie.get("overview") or "").strip()
+        
+        if poster and overview and len(overview) > 50:
+            quality_movies.append(movie)
+    
+    return quality_movies
+
 def render_movie_grid(
     movies,
     cols=4,
@@ -283,10 +365,17 @@ def render_movie_grid(
     show_unlike=False,
     similar_limit=12,
     section="default",
-    profile_mode=False,           
+    profile_mode=False,
+    filter_quality=True,
 ):
     if not movies:
         return
+
+    if filter_quality:
+        movies = filter_quality_movies(movies)
+        if not movies:
+            st.info("No high-quality movies found matching your criteria.")
+            return
 
     if profile_mode:
         cols = 3
@@ -313,22 +402,32 @@ def render_movie_grid(
                 )
             else:
                 st.markdown(
-                    '<div class="poster-wrap"><div class="poster" style="display:flex;align-items:center;justify-content:center;color:#777;">No Poster</div></div>',
+                    '<div class="poster-wrap"><div class="poster" style="display:flex;align-items:center;justify-content:center;color:#777;background:linear-gradient(135deg,#2a2d3a,#3a3d4a);font-size:0.8rem;">No Poster Available</div></div>',
                     unsafe_allow_html=True
                 )
 
             st.markdown(f'<div class="title">{title}</div>', unsafe_allow_html=True)
 
+            genres = m.get("genres")
+            if genres:
+                if isinstance(genres, str):
+                    genre_list = [g.strip() for g in genres.split(",") if g.strip()]
+                elif isinstance(genres, list):
+                    genre_list = [str(g).strip() for g in genres if str(g).strip()]
+                else:
+                    genre_list = []
+                
+                if genre_list:
+                    tags_html = '<div class="genre-tags">'
+                    for genre in genre_list[:3]: 
+                        tags_html += f'<span class="genre-tag">{genre}</span>'
+                    tags_html += '</div>'
+                    st.markdown(tags_html, unsafe_allow_html=True)
+
             if overview_full:
                 st.markdown(f'<div class="overview-clamp">{overview_full}</div>', unsafe_allow_html=True)
-                if len(overview_full) > 450:
-                    with st.popover("Read more …", use_container_width=True):
-                        st.write(overview_full)
-                else:
-                    st.markdown('<div class="readmore-placeholder"></div>', unsafe_allow_html=True)
             else:
-                st.markdown('<div class="overview-clamp"></div>', unsafe_allow_html=True)
-                st.markdown('<div class="readmore-placeholder"></div>', unsafe_allow_html=True)
+                st.markdown('<div class="overview-clamp">No overview available.</div>', unsafe_allow_html=True)
 
             st.markdown('<div class="spacer-flex"></div>', unsafe_allow_html=True)
 
@@ -390,7 +489,6 @@ def render_movie_grid(
 
 # ----------------- Tabs -----------------
 home_tab, profile_tab = st.tabs(["🏠 Home", "👤 Profile"])
-
 
 with home_tab:
     st.subheader("🔍 Search movies and 👍 like them")
@@ -475,7 +573,7 @@ with home_tab:
             else:
                 st.write("*No overview available*")
             
-            genres = movie.get("genres", "")
+            genres = movie.get("genres")
             if genres:
                 if isinstance(genres, str):
                     genres_text = genres.strip()
@@ -486,8 +584,6 @@ with home_tab:
                 
                 if genres_text:
                     st.markdown(f"**Genres:** {genres_text}")
-            else:
-                pass
 
             movie_id = movie.get("movie_id")
             if movie_id:
@@ -600,13 +696,14 @@ with home_tab:
         )
 
 with profile_tab:
+    st.markdown('<div class="user-profile-card">', unsafe_allow_html=True)
     st.subheader("👤 Profile")
 
     colA, colB = st.columns([1, 3])
     with colA:
         initials = (st.session_state["profiles"][int(user_id)]["display_name"].strip()[:1] or str(user_id)[:1]).upper()
         st.markdown(f"""
-        <div style="width:96px;height:96px;border-radius:50%;background:#eee;display:flex;align-items:center;justify-content:center;font-size:36px;">
+        <div style="width:96px;height:96px;border-radius:50%;background:linear-gradient(135deg, #667eea 0%, #764ba2 100%);display:flex;align-items:center;justify-content:center;font-size:36px;color:white;box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);">
             {initials}
         </div>
         """, unsafe_allow_html=True)
@@ -617,7 +714,8 @@ with profile_tab:
             st.markdown(f"**Name:** {prof['display_name']}")
         if prof.get("bio"):
             st.markdown(f"> {prof['bio']}")
-
+    
+    st.markdown('</div>', unsafe_allow_html=True)
     st.markdown("---")
 
     rcol1, rcol2 = st.columns([1, 1])

@@ -7,7 +7,6 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 ENV_PATH = ROOT_DIR / ".env"
 load_dotenv(dotenv_path=ENV_PATH)
 
-# otherwise
 DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     user = os.getenv("DB_USER", "postgres")
@@ -17,3 +16,6 @@ if not DATABASE_URL:
     name = os.getenv("DB_NAME", "postgres")
     ssl = os.getenv("DB_SSLMODE", "require")
     DATABASE_URL = f"postgresql+psycopg://{user}:{pwd}@{host}:{port}/{name}?sslmode={ssl}"
+
+# debug
+print(f"Final DATABASE_URL: {DATABASE_URL}")

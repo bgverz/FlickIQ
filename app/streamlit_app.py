@@ -91,6 +91,51 @@ st.markdown("""
 .block-container .stColumns {
   gap: 2rem !important;
 }
+            
+/* Compact autocomplete styling */
+.autocomplete-results {
+    background: rgba(40, 42, 54, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    margin-top: -10px;
+    padding: 8px 0;
+    max-height: 300px;
+    overflow-y: auto;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.autocomplete-item {
+    padding: 8px 16px;
+    margin: 0 8px 4px 8px;
+    border-radius: 4px;
+    background: transparent;
+    border: none;
+    color: #ffffff;
+    text-align: left;
+    font-size: 14px;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.autocomplete-item:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+/* Make buttons look more like dropdown items */
+div[data-testid="column"] > div > button {
+    background: transparent !important;
+    border: none !important;
+    padding: 8px 16px !important;
+    margin: 2px 8px !important;
+    border-radius: 4px !important;
+    text-align: left !important;
+    font-size: 14px !important;
+}
+
+div[data-testid="column"] > div > button:hover {
+    background: rgba(255, 255, 255, 0.1) !important;
+}
+            
 </style>
 """, unsafe_allow_html=True)
 
@@ -162,6 +207,29 @@ def clean_movie_title(title, year=None):
         return f"{clean_title} ({year})"
     else:
         return clean_title
+
+def search_movies_function(searchterm: str):
+    """
+    Function to search movies - required by st_searchbox
+    Must return a list of tuples: (display_value, return_value)
+    """
+    if not searchterm or len(searchterm) < 2:
+        return []
+    
+    try:
+        ok, data = safe_get(f"{DEFAULT_API}/movies/search", params={"q": searchterm, "limit": 10}, timeout=15)
+        if ok and data:
+            results = []
+            for movie in data:
+                title = movie.get('title', 'Untitled')
+                year = movie.get('year')
+                display_title = clean_movie_title(title, year)
+                results.append((display_title, movie))
+            return results
+    except Exception as e:
+        print(f"Search error: {e}")
+    
+    return []
 
 # ----------------- Session init -----------------
 if "_force_liked_reload" not in st.session_state:
@@ -238,7 +306,6 @@ def render_movie_grid(
 
             st.markdown('<div class="movie-card">', unsafe_allow_html=True)
 
-            # Poster
             if poster:
                 st.markdown(
                     f'<div class="poster-wrap"><img class="poster" src="{poster}" alt="{raw_title} poster" /></div>',
@@ -250,10 +317,8 @@ def render_movie_grid(
                     unsafe_allow_html=True
                 )
 
-            # Titles
             st.markdown(f'<div class="title">{title}</div>', unsafe_allow_html=True)
 
-            # Overviews
             if overview_full:
                 st.markdown(f'<div class="overview-clamp">{overview_full}</div>', unsafe_allow_html=True)
                 if len(overview_full) > 450:
@@ -267,7 +332,6 @@ def render_movie_grid(
 
             st.markdown('<div class="spacer-flex"></div>', unsafe_allow_html=True)
 
-            # interaction buttons
             btn_defs = []
             if show_like and mid is not None:
                 btn_defs.append(("👍 Like", f"{section}_like_{mid}"))
@@ -327,19 +391,135 @@ def render_movie_grid(
 # ----------------- Tabs -----------------
 home_tab, profile_tab = st.tabs(["🏠 Home", "👤 Profile"])
 
+
 with home_tab:
-    st.subheader("🔎 Search movies and 👍 like them")
-    q = st.text_input("Search by title", placeholder="e.g., Inception", key="search_q")
-    if q:
-        ok, data = safe_get(f"{api_base}/movies/search", params={"q": q, "limit": 16}, timeout=30)
-        if ok:
-            movies = data or []
-            if movies:
-                render_movie_grid(movies, cols=4, show_like=True, show_similar=True, similar_limit=12, section="search")
-            else:
-                st.info("No results.")
+    st.subheader("🔍 Search movies and 👍 like them")
+    
+    if "selected_movie_data" not in st.session_state:
+        st.session_state["selected_movie_data"] = None
+    if "search_results" not in st.session_state:
+        st.session_state["search_results"] = []
+    if "last_search_query" not in st.session_state:
+        st.session_state["last_search_query"] = ""
+    
+    search_query = st.text_input(
+        "Search for movies...", 
+        placeholder="Start typing a movie title (e.g., Godfather)", 
+        key="movie_search_input",
+        label_visibility="collapsed"
+    )
+    
+    if search_query and len(search_query) >= 2 and search_query != st.session_state["last_search_query"]:
+        ok, data = safe_get(f"{api_base}/movies/search", params={"q": search_query, "limit": 8}, timeout=15)
+        if ok and data:
+            st.session_state["search_results"] = data
         else:
-            st.error(str(data))
+            st.session_state["search_results"] = []
+        st.session_state["last_search_query"] = search_query
+    elif len(search_query) < 2:
+        st.session_state["search_results"] = []
+        st.session_state["last_search_query"] = ""
+    
+    if st.session_state["search_results"] and search_query and len(search_query) >= 2:
+        with st.container():
+            st.markdown('<div class="autocomplete-results">', unsafe_allow_html=True)
+            
+            for i, movie in enumerate(st.session_state["search_results"]):
+                title = movie.get('title', 'Untitled')
+                year = movie.get('year')
+                normalized_title = clean_movie_title(title, year)
+                
+                movie_id = movie.get('movie_id', i)
+                if st.button(
+                    normalized_title, 
+                    key=f"select_movie_{movie_id}_{i}", 
+                    use_container_width=True
+                ):
+                    st.session_state["selected_movie_data"] = movie
+                    st.session_state["search_results"] = []
+                    st.rerun()
+            
+            st.markdown('</div>', unsafe_allow_html=True)
+    
+    if st.session_state["search_results"] and not st.session_state["selected_movie_data"]:
+        if st.button("✕ Clear search", key="clear_search_results"):
+            st.session_state["search_results"] = []
+            st.session_state["last_search_query"] = ""
+            st.rerun()
+    
+    if st.session_state["selected_movie_data"]:
+        movie = st.session_state["selected_movie_data"]
+        st.markdown("---")
+        
+        col_poster, col_details = st.columns([1, 3])
+        
+        with col_poster:
+            poster = movie.get("poster_path", "").strip()
+            if poster:
+                st.image(poster, width=200)
+            else:
+                st.markdown(
+                    '<div style="width:200px;height:300px;background:#333;display:flex;align-items:center;justify-content:center;border-radius:8px;color:#777;">No Poster</div>', 
+                    unsafe_allow_html=True
+                )
+        
+        with col_details:
+            title = movie.get("title", "Untitled")
+            year = movie.get("year")
+            normalized_title = clean_movie_title(title, year)
+            st.markdown(f"### {normalized_title}")
+            
+            overview = movie.get("overview", "").strip()
+            if overview:
+                st.write(overview)
+            else:
+                st.write("*No overview available*")
+            
+            genres = movie.get("genres", "")
+            if genres:
+                if isinstance(genres, str):
+                    genres_text = genres.strip()
+                elif isinstance(genres, list):
+                    genres_text = ", ".join([str(g).strip() for g in genres if g])
+                else:
+                    genres_text = str(genres).strip()
+                
+                if genres_text:
+                    st.markdown(f"**Genres:** {genres_text}")
+            else:
+                pass
+
+            movie_id = movie.get("movie_id")
+            if movie_id:
+                btn_col1, btn_col2, btn_col3 = st.columns(3)
+                
+                with btn_col1:
+                    if st.button("👍 Like", key=f"like_{movie_id}"):
+                        payload = {"user_id": int(user_id), "movie_id": int(movie_id), "interaction_type": "like"}
+                        ok, resp = safe_post(f"{api_base}/interactions", json=payload, timeout=15)
+                        if ok:
+                            st.success("Liked!")
+                            uid = int(user_id)
+                            cache = st.session_state["likes_cache"].setdefault(uid, {})
+                            cache[movie_id] = movie
+                        else:
+                            st.error(str(resp))
+                
+                with btn_col2:
+                    if st.button("🎯 Similar", key=f"similar_{movie_id}"):
+                        ok, resp = safe_get(f"{api_base}/similar/{int(movie_id)}", params={"limit": 12}, timeout=30)
+                        if ok:
+                            st.session_state["similar_results"] = resp
+                            st.session_state["similar_title"] = title
+                        else:
+                            st.warning(str(resp))
+                
+                with btn_col3:
+                    if st.button("🔄 New Search", key=f"clear_{movie_id}"):
+                        st.session_state["selected_movie_data"] = None
+                        st.session_state["search_results"] = []
+                        st.session_state["last_search_query"] = ""
+                        st.rerun()
 
     if st.session_state["similar_results"]:
         st.subheader(f"🎯 Similar to: {st.session_state['similar_title']}")
@@ -422,7 +602,6 @@ with home_tab:
 with profile_tab:
     st.subheader("👤 Profile")
 
-    # Header card
     colA, colB = st.columns([1, 3])
     with colA:
         initials = (st.session_state["profiles"][int(user_id)]["display_name"].strip()[:1] or str(user_id)[:1]).upper()
@@ -441,14 +620,12 @@ with profile_tab:
 
     st.markdown("---")
 
-    # Controls
     rcol1, rcol2 = st.columns([1, 1])
     with rcol2:
         if st.button("🧹 Clear local likes cache"):
             st.session_state["likes_cache"].pop(int(user_id), None)
             st.session_state["likes_cache"][int(user_id)] = {}
 
-    # Fetch liked movies from API
     liked_movies_api = []
     if st.session_state.get("_force_liked_reload", True):
         ok, data = safe_get(f"{api_base}/users/{int(user_id)}/liked", params={"limit": 500}, timeout=30)
@@ -462,7 +639,6 @@ with profile_tab:
         if ok and isinstance(data, list):
             liked_movies_api = data
 
-    # Merge API likes with local cache
     uid = int(user_id)
     cache_map = st.session_state["likes_cache"].get(uid, {})
     merged = {}
@@ -473,7 +649,6 @@ with profile_tab:
         merged[mid] = {**merged.get(mid, {}), **m}
     liked_movies = list(merged.values())
 
-    # Basic stats
     st.metric("Total interactions", len(liked_movies_api))
     st.metric("Liked movies", len(liked_movies))
 
@@ -515,7 +690,6 @@ with profile_tab:
 
         st.markdown("---")
 
-        # My Liked Movies
         st.subheader("🎬 My Liked Movies")
         render_movie_grid(
             liked_movies,
@@ -528,7 +702,6 @@ with profile_tab:
             profile_mode=True,
         )
 
-        # Similar results
         if st.session_state["similar_results"]:
             st.markdown("---")
             st.subheader(f"🎯 Similar to: {st.session_state['similar_title']}")

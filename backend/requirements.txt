@@ -38,9 +38,7 @@ tzdata==2025.2
 urllib3==2.5.0
 fastapi==0.115.0
 uvicorn[standard]==0.30.0
-psycopg2-binary==2.9.9
+psycopg2-binary==2.9.5
 # lightfm==1.16  # Install separately if needed
 pydantic==2.8.0
 matplotlib==3.9.0
-psycopg2==2.9.9
-psycopg[binary]==3.1.8

@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 FastAPI application serving movie recommendations + simple write endpoints.
 
@@ -24,6 +25,7 @@ from typing import Any, List, Optional, Tuple
 
 import psycopg2
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 
@@ -56,6 +58,15 @@ TMDB_IMAGE_BASE = os.environ.get("TMDB_IMAGE_BASE", "https://image.tmdb.org/t/p/
 POSTER_PLACEHOLDER = os.environ.get("POSTER_PLACEHOLDER", "https://placehold.co/342x513?text=No+Poster")
 
 app = FastAPI(title="Movie Recommender API", version="0.5.0")
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # In production, specify your frontend domain
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 def get_conn():
     return psycopg2.connect(DSN)
@@ -530,3 +541,7 @@ def get_all_movies(
     except Exception:
         LOGGER.exception("Failed to fetch all movies")
         raise HTTPException(status_code=500, detail="Internal server error")
+    
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", 8000)))

@@ -1,0 +1,7 @@
+services:
+     - type: web
+       name: flickiq-backend
+       runtime: python3
+       rootDir: backend
+       buildCommand: pip install -r requirements.txt
+       startCommand: cd api && python main.py
